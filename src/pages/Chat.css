@@ -1,0 +1,220 @@
+.chat-container {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 1.5rem;
+    height: calc(100vh - 200px);
+    min-height: 500px;
+}
+
+.conversations-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.conversations-panel h3 {
+    margin: 0 0 1rem 0;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.conversations-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.conversation-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.conversation-item:hover {
+    background-color: var(--color-bg-secondary);
+}
+
+.conversation-item.active {
+    background-color: var(--color-primary);
+    color: white;
+}
+
+.conversation-avatar {
+    font-size: 1.5rem;
+}
+
+.conversation-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.conversation-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.conversation-count {
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.messages-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.messages-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 1rem;
+}
+
+.messages-header h3 {
+    margin: 0;
+}
+
+.team-badge {
+    background: var(--color-primary);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.messages-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 0.5rem;
+}
+
+.message {
+    max-width: 70%;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-lg);
+    position: relative;
+}
+
+.message.own {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark, #5a4dd1));
+    color: white;
+}
+
+.message.other {
+    align-self: flex-start;
+    background: var(--color-bg-secondary);
+}
+
+.message-sender {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
+
+.message.own .message-sender {
+    display: none;
+}
+
+.message-content {
+    word-wrap: break-word;
+}
+
+.message-time {
+    font-size: 0.7rem;
+    opacity: 0.6;
+    margin-top: 0.25rem;
+    text-align: right;
+}
+
+.message-input {
+    display: flex;
+    gap: 0.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+    margin-top: 1rem;
+}
+
+.message-input .input {
+    flex: 1;
+}
+
+.no-conversation {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.empty-text {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 2rem;
+}
+
+/* New Chat Modal */
+.members-list {
+    max-height: 300px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.member-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.member-option:hover {
+    background-color: var(--color-bg-secondary);
+}
+
+.role-tag {
+    margin-left: auto;
+    font-size: 0.75rem;
+    padding: 0.125rem 0.5rem;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-sm);
+    text-transform: capitalize;
+}
+
+@media (max-width: 768px) {
+    .chat-container {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+
+    .conversations-panel {
+        max-height: 200px;
+    }
+
+    .messages-panel {
+        min-height: 400px;
+    }
+}

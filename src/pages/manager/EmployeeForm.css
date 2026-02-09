@@ -1,0 +1,322 @@
+.employee-form-page {
+    animation: fadeIn var(--transition-base) ease-out;
+}
+
+.employee-form-page .page-header {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+}
+
+.back-btn {
+    flex-shrink: 0;
+}
+
+.employee-form-page .page-header-content {
+    flex: 1;
+}
+
+.employee-form-page .page-header-content h1 {
+    margin: 0 0 var(--spacing-xs) 0;
+}
+
+.employee-form-page .page-subtitle {
+    margin: 0;
+    color: var(--color-text-muted);
+}
+
+.employee-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.form-section {
+    padding: var(--spacing-xl);
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin: 0 0 var(--spacing-md) 0;
+    font-size: var(--font-size-xl);
+}
+
+.section-icon {
+    font-size: var(--font-size-2xl);
+}
+
+.section-description {
+    color: var(--color-text-muted);
+    margin: 0 0 var(--spacing-xl) 0;
+    font-size: var(--font-size-sm);
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacing-lg);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.form-label {
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+/* Shifts Table */
+.shifts-table {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.shifts-header {
+    display: grid;
+    grid-template-columns: 80px 60px 1fr 1fr 1.5fr;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--color-bg-glass);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+}
+
+.shift-row {
+    display: grid;
+    grid-template-columns: 80px 60px 1fr 1fr 1.5fr;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-lg);
+    align-items: center;
+    border-top: 1px solid var(--color-border);
+    transition: background var(--transition-fast);
+}
+
+.shift-row:hover {
+    background: var(--color-bg-glass);
+}
+
+.shift-row.day-off {
+    background: rgba(107, 114, 128, 0.1);
+}
+
+.shift-day {
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.shift-time {
+    max-width: 120px;
+}
+
+.shift-role {
+    min-width: 0;
+}
+
+.shift-row.day-off .shift-time,
+.shift-row.day-off .shift-role {
+    opacity: 0.5;
+}
+
+/* Checkbox styling */
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.checkbox-container input {
+    display: none;
+}
+
+.checkmark {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+}
+
+.checkbox-container input:checked+.checkmark {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+.checkbox-container input:checked+.checkmark::after {
+    content: '✓';
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: bold;
+}
+
+/* Additional Roles */
+.additional-roles-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.add-role-row {
+    display: flex;
+    gap: var(--spacing-md);
+    max-width: 500px;
+}
+
+.role-select {
+    flex: 1;
+}
+
+.roles-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+
+.role-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(139, 92, 246, 0.2);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-sm);
+}
+
+.role-remove {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-lg);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    margin-left: var(--spacing-xs);
+}
+
+.role-remove:hover {
+    color: var(--color-danger);
+}
+
+.no-roles-message {
+    color: var(--color-text-muted);
+    font-style: italic;
+    margin: 0;
+}
+
+/* Form Actions */
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-md);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}
+
+.form-actions .btn {
+    min-width: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+}
+
+/* Error banner */
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-md);
+    color: var(--color-danger);
+    margin-bottom: var(--spacing-lg);
+}
+
+.error-dismiss {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--color-danger);
+    font-size: var(--font-size-xl);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+/* Loading */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-3xl);
+    gap: var(--spacing-lg);
+    color: var(--color-text-muted);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .shifts-header {
+        display: none;
+    }
+
+    .shift-row {
+        grid-template-columns: 1fr 1fr;
+        gap: var(--spacing-sm);
+    }
+
+    .shift-day {
+        grid-column: 1 / -1;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .shift-time {
+        max-width: none;
+    }
+
+    .shift-role {
+        grid-column: 1 / -1;
+    }
+
+    .checkbox-container {
+        position: absolute;
+        right: var(--spacing-lg);
+    }
+
+    .shift-row {
+        position: relative;
+        padding-right: calc(var(--spacing-lg) + 40px);
+    }
+
+    .add-role-row {
+        flex-direction: column;
+        max-width: none;
+    }
+
+    .form-actions {
+        flex-direction: column-reverse;
+    }
+
+    .form-actions .btn {
+        width: 100%;
+    }
+}

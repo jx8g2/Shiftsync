@@ -1,0 +1,395 @@
+.week-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.schedule-grid {
+    overflow-x: auto;
+    margin-top: var(--spacing-lg);
+}
+
+.schedule-header,
+.schedule-row {
+    display: grid;
+    grid-template-columns: 180px repeat(7, 1fr) 60px;
+    gap: 1px;
+    background: var(--color-border);
+}
+
+.schedule-header {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    overflow: hidden;
+}
+
+.schedule-row:last-child {
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    overflow: hidden;
+}
+
+.schedule-cell {
+    padding: var(--spacing-sm);
+    background: var(--color-bg-secondary);
+}
+
+.employee-header,
+.day-header,
+.hours-header {
+    background: var(--color-bg-tertiary);
+    font-weight: 600;
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    text-align: center;
+}
+
+.employee-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.employee-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.employee-name {
+    font-weight: 500;
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.employee-position {
+    font-size: 10px;
+    color: var(--color-text-muted);
+}
+
+.shift-cell {
+    min-height: 65px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-xs);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    user-select: none;
+}
+
+.shift-cell:hover {
+    filter: brightness(0.95);
+}
+
+.shift-cell.has-shift {
+    background: rgba(139, 92, 246, 0.15);
+}
+
+.shift-cell.no-shift {
+    background: rgba(107, 114, 128, 0.1);
+}
+
+/* Shift Display */
+.shift-display {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: var(--gradient-primary);
+    border-radius: var(--radius-md);
+    color: white;
+    text-align: center;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transition: all var(--transition-fast);
+}
+
+.shift-cell:hover .shift-display {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+.shift-time-display {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.shift-role-display {
+    font-size: 9px;
+    opacity: 0.85;
+}
+
+/* Empty cell (OFF) */
+.empty-cell {
+    width: 100%;
+    padding: var(--spacing-sm);
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    opacity: 0.6;
+}
+
+.shift-cell.no-shift:hover .empty-cell {
+    opacity: 1;
+    color: var(--color-primary);
+}
+
+/* Shift Editor */
+.shift-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: var(--spacing-xs);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+}
+
+.shift-times {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 10px;
+}
+
+.shift-times select {
+    padding: 2px 4px;
+    font-size: 10px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    cursor: pointer;
+}
+
+.role-select-mini {
+    width: 100%;
+    padding: 2px 4px;
+    font-size: 10px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.btn-sm.btn-success {
+    background: var(--color-success);
+    color: white;
+}
+
+/* Hours */
+.hours-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hours-badge {
+    padding: 4px 8px;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.hours-badge.overtime {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--color-danger);
+}
+
+/* Legend */
+.schedule-legend {
+    display: flex;
+    justify-content: center;
+    gap: var(--spacing-xl);
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.legend-dot.scheduled {
+    background: var(--gradient-primary);
+}
+
+.legend-dot.off {
+    background: rgba(107, 114, 128, 0.3);
+}
+
+/* Empty & Loading States */
+.empty-state {
+    text-align: center;
+    padding: var(--spacing-2xl);
+    color: var(--color-text-muted);
+}
+
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-3xl);
+    gap: var(--spacing-md);
+    color: var(--color-text-muted);
+}
+
+/* Timeline Modal */
+.timeline-modal {
+    max-width: 1000px;
+    width: 95%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.timeline-days {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.timeline-day {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: stretch;
+}
+
+.timeline-day-label {
+    width: 60px;
+    padding: var(--spacing-md);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.timeline-content {
+    flex: 1;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    min-height: 80px;
+}
+
+.timeline-axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-sm);
+}
+
+.timeline-bars {
+    position: relative;
+    height: 60px;
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-sm);
+}
+
+.timeline-bar {
+    position: absolute;
+    top: 4px;
+    height: calc(100% - 8px);
+    background: var(--gradient-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    color: white;
+    font-size: 11px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+    min-width: 60px;
+}
+
+.bar-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bar-role {
+    font-size: 9px;
+    opacity: 0.85;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+
+    .schedule-header,
+    .schedule-row {
+        grid-template-columns: 140px repeat(7, 90px) 50px;
+    }
+}
+
+@media (max-width: 768px) {
+    .schedule-grid {
+        margin-top: var(--spacing-md);
+        /* Ensure horizontal scroll works smoothly */
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Make Employee Column Sticky */
+    .schedule-header .employee-header,
+    .schedule-row .employee-cell {
+        position: sticky;
+        left: 0;
+        z-index: 10;
+        background: inherit;
+        /* Maintain background color */
+        border-right: 1px solid var(--color-border);
+        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+    }
+
+    .schedule-row .employee-cell {
+        background: var(--color-bg-secondary);
+    }
+
+    .schedule-header .employee-header {
+        background: var(--color-bg-tertiary);
+    }
+
+    .schedule-header,
+    .schedule-row {
+        /* Slightly tighter columns on mobile */
+        grid-template-columns: 120px repeat(7, 85px) 45px;
+    }
+
+    .employee-name {
+        font-size: 11px;
+    }
+
+    .employee-position {
+        font-size: 9px;
+    }
+}

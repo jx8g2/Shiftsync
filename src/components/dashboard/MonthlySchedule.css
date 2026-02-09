@@ -1,0 +1,329 @@
+.monthly-schedule-container {
+    background: var(--bg-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: var(--spacing-lg);
+    margin-top: var(--spacing-xl);
+    border: 1px solid var(--border-color);
+}
+
+.monthly-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.month-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.export-btn {
+    margin-left: var(--spacing-md);
+}
+
+.schedule-filters {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.filter-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.shift-filter-select {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    min-width: 180px;
+}
+
+.shift-filter-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.current-month {
+    font-weight: 600;
+    font-size: 1.1rem;
+    min-width: 150px;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background-color: var(--border-color);
+    /* Grid line color */
+    gap: 1px;
+    /* Creates grid lines */
+}
+
+.calendar-day-header {
+    padding: var(--spacing-sm);
+    text-align: center;
+    background-color: var(--bg-secondary);
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.calendar-cell {
+    min-height: 100px;
+    padding: var(--spacing-xs);
+    position: relative;
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+}
+
+.calendar-cell.empty {
+    background-color: var(--bg-tertiary);
+}
+
+.calendar-cell.today {
+    background-color: var(--bg-secondary);
+}
+
+.date-number {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    text-align: right;
+    padding-right: 4px;
+}
+
+.today .date-number {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+.daily-shifts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.mini-shift {
+    /* Default fallback */
+    background-color: var(--bg-secondary);
+    border-left: 3px solid var(--text-tertiary);
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: transform 0.1s ease;
+    cursor: default;
+}
+
+.mini-shift:hover {
+    transform: translateX(2px);
+    z-index: 10;
+}
+
+/* Shift Period Color Coding */
+/* Morning: 4:30 AM - 11:00 AM (warm gold/orange) */
+.shift-morning {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(245, 158, 11, 0.15) 100%);
+    border-left-color: #f59e0b;
+    color: var(--text-primary);
+}
+
+.shift-morning .mini-shift-name {
+    color: #d97706;
+}
+
+/* Afternoon: 11:00 AM - 4:00 PM (cool blue) */
+.shift-afternoon {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.15) 100%);
+    border-left-color: #3b82f6;
+    color: var(--text-primary);
+}
+
+.shift-afternoon .mini-shift-name {
+    color: #2563eb;
+}
+
+/* Night: 4:00 PM - 10:30 PM (deep purple/indigo) */
+.shift-night {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(109, 40, 217, 0.15) 100%);
+    border-left-color: #8b5cf6;
+    color: var(--text-primary);
+}
+
+.shift-night .mini-shift-name {
+    color: #7c3aed;
+}
+
+/* Multi-period combinations - show sections of each color */
+/* Morning + Afternoon */
+.shift-morning-afternoon {
+    background: linear-gradient(90deg,
+            rgba(251, 191, 36, 0.25) 0%,
+            rgba(251, 191, 36, 0.2) 50%,
+            rgba(59, 130, 246, 0.2) 50%,
+            rgba(59, 130, 246, 0.25) 100%);
+    border-left: 3px solid;
+    border-image: linear-gradient(180deg, #f59e0b 50%, #3b82f6 50%) 1;
+}
+
+.shift-morning-afternoon .mini-shift-name {
+    background: linear-gradient(90deg, #d97706 0%, #2563eb 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Afternoon + Night */
+.shift-afternoon-night {
+    background: linear-gradient(90deg,
+            rgba(59, 130, 246, 0.25) 0%,
+            rgba(59, 130, 246, 0.2) 50%,
+            rgba(139, 92, 246, 0.2) 50%,
+            rgba(139, 92, 246, 0.25) 100%);
+    border-left: 3px solid;
+    border-image: linear-gradient(180deg, #3b82f6 50%, #8b5cf6 50%) 1;
+}
+
+.shift-afternoon-night .mini-shift-name {
+    background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Morning + Night (rare but possible) */
+.shift-morning-night {
+    background: linear-gradient(90deg,
+            rgba(251, 191, 36, 0.25) 0%,
+            rgba(251, 191, 36, 0.2) 50%,
+            rgba(139, 92, 246, 0.2) 50%,
+            rgba(139, 92, 246, 0.25) 100%);
+    border-left: 3px solid;
+    border-image: linear-gradient(180deg, #f59e0b 50%, #8b5cf6 50%) 1;
+}
+
+.shift-morning-night .mini-shift-name {
+    background: linear-gradient(90deg, #d97706 0%, #7c3aed 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* All three periods - Morning + Afternoon + Night */
+.shift-morning-afternoon-night {
+    background: linear-gradient(90deg,
+            rgba(251, 191, 36, 0.25) 0%,
+            rgba(251, 191, 36, 0.2) 33%,
+            rgba(59, 130, 246, 0.2) 33%,
+            rgba(59, 130, 246, 0.2) 66%,
+            rgba(139, 92, 246, 0.2) 66%,
+            rgba(139, 92, 246, 0.25) 100%);
+    border-left: 3px solid;
+    border-image: linear-gradient(180deg, #f59e0b 33%, #3b82f6 33%, #3b82f6 66%, #8b5cf6 66%) 1;
+}
+
+.shift-morning-afternoon-night .mini-shift-name {
+    background: linear-gradient(90deg, #d97706 0%, #2563eb 50%, #7c3aed 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Other/fallback */
+.shift-other {
+    background: var(--bg-secondary);
+    border-left-color: var(--text-tertiary);
+}
+
+.mini-shift-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.mini-shift-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mini-shift-role {
+    font-size: 0.65rem;
+    opacity: 0.75;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mini-shift-time {
+    opacity: 0.9;
+    font-size: 0.65rem;
+    /* Slightly smaller to fit range */
+    font-weight: 500;
+    letter-spacing: -0.2px;
+}
+
+.more-shifts {
+    font-size: 0.7rem;
+    color: var(--text-tertiary);
+    text-align: center;
+    margin-top: 2px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+}
+
+.more-shifts:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* Responsiveness */
+@media (max-width: 768px) {
+    .calendar-cell {
+        min-height: 70px;
+    }
+
+    .mini-shift-name {
+        display: none;
+    }
+
+    .mini-shift {
+        justify-content: center;
+        padding: 2px;
+    }
+
+    .mini-shift-time {
+        font-size: 0.6rem;
+    }
+
+
+}

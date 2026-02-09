@@ -1,0 +1,15 @@
+.modal-small {
+    max-width: 400px;
+}
+
+.modal-medium {
+    max-width: 500px;
+}
+
+.modal-large {
+    max-width: 700px;
+}
+
+.modal-xlarge {
+    max-width: 900px;
+}

@@ -1,0 +1,111 @@
+.request-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--spacing-lg);
+}
+
+.request-card {
+    background: var(--color-bg-glass);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    transition: all var(--transition-fast);
+}
+
+.request-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.request-card.pending {
+    border-left: 4px solid var(--color-warning);
+}
+
+.request-card.approved {
+    border-left: 4px solid var(--color-success);
+}
+
+.request-card.denied {
+    border-left: 4px solid var(--color-danger);
+}
+
+.request-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.request-type {
+    font-weight: 600;
+    font-size: var(--font-size-base);
+}
+
+.request-card-dates {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-weight: 500;
+    color: var(--color-primary-light);
+}
+
+.date-icon {
+    font-size: var(--font-size-lg);
+}
+
+.request-card-reason {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    margin: 0;
+    line-height: 1.5;
+}
+
+.request-card-note {
+    padding: var(--spacing-md);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.note-label {
+    font-weight: 600;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+}
+
+.request-card-footer {
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border);
+}
+
+.request-submitted {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+.empty-state-small {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--color-text-muted);
+}
+
+.form-warning {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.15), rgba(255, 152, 0, 0.15));
+    border: 1px solid rgba(255, 193, 7, 0.4);
+    color: var(--color-warning-text, #856404);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+}
+
+[data-theme="dark"] .form-warning {
+    color: #ffc107;
+    background: rgba(255, 193, 7, 0.1);
+}

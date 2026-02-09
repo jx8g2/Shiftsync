@@ -1,0 +1,190 @@
+.filter-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.filter-tab {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--color-bg-glass);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.filter-tab:hover {
+    background: var(--color-bg-glass-hover);
+    color: var(--color-text-primary);
+}
+
+.filter-tab.active {
+    background: var(--gradient-primary);
+    border-color: transparent;
+    color: white;
+}
+
+.tab-badge {
+    padding: 2px 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+}
+
+.employee-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.reason-cell {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.review-modal-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.review-employee {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-lg);
+    background: var(--color-bg-glass);
+    border-radius: var(--radius-lg);
+}
+
+.review-employee-info h4 {
+    font-size: var(--font-size-lg);
+    margin-bottom: var(--spacing-xs);
+}
+
+.review-employee-info span {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+}
+
+.review-details,
+.review-result {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.review-detail-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-lg);
+}
+
+.detail-label {
+    min-width: 100px;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+}
+
+.btn-success {
+    background: var(--gradient-success);
+    color: white;
+}
+
+@media (max-width: 768px) {
+    .requests-table .table thead {
+        display: none;
+    }
+
+    .requests-table .table,
+    .requests-table .table tbody,
+    .requests-table .table tr,
+    .requests-table .table td {
+        display: block;
+        width: 100%;
+    }
+
+    .requests-table .table tr {
+        background: var(--color-bg-glass);
+        margin-bottom: var(--spacing-md);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-md);
+    }
+
+    .requests-table .table td {
+        padding: var(--spacing-xs) 0;
+        text-align: right;
+        border: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .requests-table .table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-xs);
+        text-transform: uppercase;
+        margin-right: var(--spacing-md);
+    }
+
+    .requests-table .table td:first-child {
+        border-bottom: 1px solid var(--color-border);
+        padding-bottom: var(--spacing-sm);
+        margin-bottom: var(--spacing-sm);
+        justify-content: flex-start;
+    }
+
+    .requests-table .table td:first-child::before {
+        display: none;
+    }
+
+    .employee-cell {
+        gap: var(--spacing-sm);
+    }
+
+    .reason-cell {
+        max-width: 100%;
+        text-align: right;
+    }
+}
+
+/* Replacement Workflow Styles */
+.replacement-section {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}
+
+.replacement-header {
+    font-size: var(--font-size-base);
+    margin: 0 0 var(--spacing-md) 0;
+    color: var(--color-text-primary);
+}
+
+.replacement-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+
+.replacement-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.text-muted {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}

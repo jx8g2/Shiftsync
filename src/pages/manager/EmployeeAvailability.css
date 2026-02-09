@@ -1,0 +1,124 @@
+.availability-summary {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-xl);
+}
+
+.summary-day {
+    background: var(--color-bg-glass);
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.summary-day:hover {
+    border-color: var(--color-primary);
+}
+
+.summary-day.selected {
+    border-color: var(--color-primary);
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.summary-day-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.summary-day .day-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+}
+
+.summary-day .day-date {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+}
+
+.summary-count {
+    font-size: var(--font-size-2xl);
+    font-weight: 700;
+}
+
+.summary-count.low {
+    color: var(--color-danger);
+}
+
+.summary-count.medium {
+    color: var(--color-warning);
+}
+
+.summary-count.good {
+    color: var(--color-success);
+}
+
+.summary-label {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+.availability-table {
+    margin-top: var(--spacing-lg);
+}
+
+.availability-table th.highlighted,
+.availability-table td.highlighted {
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.availability-table td.available {
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.availability-table td.unavailable {
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.avail-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-size: var(--font-size-xs);
+}
+
+.avail-time {
+    color: var(--color-success);
+    font-weight: 500;
+}
+
+.avail-separator {
+    color: var(--color-text-muted);
+}
+
+.unavail-mark {
+    color: var(--color-text-muted);
+}
+
+.employee-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+@media (max-width: 1024px) {
+    .availability-summary {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .availability-summary {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

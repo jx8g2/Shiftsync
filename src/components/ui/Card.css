@@ -1,0 +1,25 @@
+.card-hoverable {
+    cursor: pointer;
+}
+
+.card-hoverable:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-glow);
+}
+
+.card-header-content {
+    flex: 1;
+}
+
+.stat-trend {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+}
+
+.stat-trend.positive {
+    color: var(--color-success);
+}
+
+.stat-trend.negative {
+    color: var(--color-danger);
+}
