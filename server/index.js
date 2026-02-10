@@ -2,8 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-const { seedDefaultData } = require('./db');
-const { adminEmail, adminPassword } = require('./admin_config');
+const { initializeDatabase, seedDefaultData } = require('./db');
 const authRoutes = require('./routes/auth');
 const employeeRoutes = require('./routes/employees');
 const scheduleRoutes = require('./routes/schedules');
@@ -40,11 +39,8 @@ app.use('/api/requests', requestRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/notifications', notificationsRoutes);
 
-app.get('/api/debug/tables', (req, res) => {
-    const { db } = require('./db');
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
-    res.json(tables);
-});
+// Debug endpoint removed (PostgreSQL migration)
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -77,7 +73,8 @@ app.use((req, res) => {
 // Start server
 const startServer = async () => {
     try {
-        // Seed default data (manager account, store)
+        // Initialize database and seed default data
+        await initializeDatabase();
         await seedDefaultData();
 
         app.listen(PORT, () => {
@@ -90,7 +87,7 @@ const startServer = async () => {
             console.log('  GET  /api/employees/:id');
             console.log('  PUT  /api/employees/:id');
             console.log('  DELETE /api/employees/:id');
-            console.log(`\n👤 Default Admin: ${adminEmail} / ${adminPassword}\n`);
+            console.log('\n👤 Default login: admin@shiftsync.com / admin123\n');
         });
     } catch (error) {
         console.error('Failed to start server:', error);

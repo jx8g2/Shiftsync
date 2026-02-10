@@ -1,9 +1,9 @@
 const express = require('express');
-const { db, query, queryOne, run } = require('../db');
+const { pool, query, queryOne, run } = require('../db');
 const router = express.Router();
 
 // Get schedule for a specific week and store
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const { storeId, weekStart } = req.query;
 
@@ -11,16 +11,17 @@ router.get('/', (req, res) => {
             return res.status(400).json({ success: false, error: 'Store ID is required' });
         }
 
-        let sql = 'SELECT * FROM schedules WHERE store_id = ?';
+        let sql = 'SELECT * FROM schedules WHERE store_id = $1';
         const params = [storeId];
+        let paramCount = 2;
 
         if (weekStart) {
-            sql += ' AND week_start = ?';
+            sql += ` AND week_start = $${paramCount++}`;
             params.push(weekStart);
         }
 
         // Get schedule meta
-        const schedules = query(sql, params);
+        const schedules = await query(sql, params);
 
         if (schedules.length === 0) {
             return res.json({ success: true, schedule: weekStart ? null : [] });
@@ -28,11 +29,11 @@ router.get('/', (req, res) => {
 
         // For each schedule, get shifts
         const scheduleIds = schedules.map(s => s.id);
-        const placeholders = scheduleIds.map(() => '?').join(',');
 
-        const allShifts = query(
-            `SELECT * FROM shifts WHERE schedule_id IN (${placeholders})`,
-            scheduleIds
+        // Postgres ANY($1) syntax for array
+        const allShifts = await query(
+            'SELECT * FROM shifts WHERE schedule_id = ANY($1)',
+            [scheduleIds]
         );
 
         // Map shifts to schedules
@@ -50,7 +51,7 @@ router.get('/', (req, res) => {
 
             return {
                 id: schedule.id,
-                storeId: schedule.store_id, // Added storeId
+                storeId: schedule.store_id,
                 weekStart: schedule.week_start,
                 published: Boolean(schedule.published),
                 publishedAt: schedule.published_at,
@@ -71,98 +72,113 @@ router.get('/', (req, res) => {
 });
 
 // Save or Update Schedule
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
     console.log('Received schedule save payload:', JSON.stringify(req.body, null, 2));
-    // Transaction to ensure atomicity
-    const saveTransaction = db.transaction((data) => {
-        const { storeId, weekStart, shifts, published } = data;
+
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        const { storeId, weekStart, shifts, published } = req.body;
 
         // 1. Check if schedule exists
-        let schedule = db.prepare('SELECT id FROM schedules WHERE store_id = ? AND week_start = ?').get(storeId, weekStart);
+        const scheduleRes = await client.query(
+            'SELECT id FROM schedules WHERE store_id = $1 AND week_start = $2',
+            [storeId, weekStart]
+        );
+        let schedule = scheduleRes.rows[0];
         let scheduleId;
 
         if (schedule) {
             scheduleId = schedule.id;
             // Update published status if provided
-            db.prepare("UPDATE schedules SET published = ?, published_at = ?, updated_at = datetime('now') WHERE id = ?")
-                .run(published ? 1 : 0, published ? new Date().toISOString() : null, scheduleId);
+            await client.query(
+                "UPDATE schedules SET published = $1, published_at = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+                [published ? 1 : 0, published ? new Date().toISOString() : null, scheduleId]
+            );
 
-            // Delete existing shifts (simple overwrite strategy)
-            db.prepare('DELETE FROM shifts WHERE schedule_id = ?').run(scheduleId);
+            // Delete existing shifts
+            await client.query('DELETE FROM shifts WHERE schedule_id = $1', [scheduleId]);
         } else {
             // Create new schedule
-            const info = db.prepare('INSERT INTO schedules (store_id, week_start, published, published_at) VALUES (?, ?, ?, ?)')
-                .run(storeId, weekStart, published ? 1 : 0, published ? new Date().toISOString() : null);
-            scheduleId = info.lastInsertRowid;
+            const insertRes = await client.query(
+                'INSERT INTO schedules (store_id, week_start, published, published_at) VALUES ($1, $2, $3, $4) RETURNING id',
+                [storeId, weekStart, published ? 1 : 0, published ? new Date().toISOString() : null]
+            );
+            scheduleId = insertRes.rows[0].id;
         }
 
         // 2. Insert new shifts
-        const insertShift = db.prepare('INSERT INTO shifts (schedule_id, employee_id, day_of_week, start_time, end_time, role) VALUES (?, ?, ?, ?, ?, ?)');
-
-        for (const shift of shifts) {
-            insertShift.run(scheduleId, shift.employeeId, shift.day, shift.start, shift.end, shift.role);
+        if (shifts && shifts.length > 0) {
+            for (const shift of shifts) {
+                await client.query(
+                    'INSERT INTO shifts (schedule_id, employee_id, day_of_week, start_time, end_time, role) VALUES ($1, $2, $3, $4, $5, $6)',
+                    [scheduleId, shift.employeeId, shift.day, shift.start, shift.end, shift.role]
+                );
+            }
         }
 
-        return { scheduleId, weekStart, published };
-    });
+        await client.query('COMMIT');
 
-    try {
-        const result = saveTransaction(req.body);
-
-        // If publishing, notify all employees with shifts
-        if (result.published) {
-            const employeesWithShifts = query(
-                'SELECT DISTINCT employee_id FROM shifts WHERE schedule_id = ?',
-                [result.scheduleId]
+        // If publishing, notify all employees with shifts (OUTSIDE transaction or inside? Outside is safer for logic separation but inside guarantees consistency. Let's do it after commit to ensure DB is saved before notifying.)
+        if (published) {
+            const employeesWithShifts = await query(
+                'SELECT DISTINCT employee_id FROM shifts WHERE schedule_id = $1',
+                [scheduleId]
             );
 
             for (const emp of employeesWithShifts) {
-                run(`
+                await run(`
                     INSERT INTO notifications (user_id, type, title, message, related_entity_type, related_entity_id)
-                    VALUES (?, 'schedule', ?, ?, 'schedule', ?)
+                    VALUES ($1, 'schedule', $2, $3, 'schedule', $4)
                 `, [
                     emp.employee_id,
                     '📅 New Schedule Published',
-                    `Your schedule for the week of ${result.weekStart} has been published. Check your shifts!`,
-                    result.scheduleId
+                    `Your schedule for the week of ${weekStart} has been published. Check your shifts!`,
+                    scheduleId
                 ]);
             }
             console.log(`Notified ${employeesWithShifts.length} employees about published schedule`);
         }
 
-        res.json({ success: true, scheduleId: result.scheduleId });
+        res.json({ success: true, scheduleId });
+
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('Save schedule error:', error);
         res.status(500).json({ success: false, error: error.message });
+    } finally {
+        client.release();
     }
 });
 
 // Publish schedule
-router.post('/:id/publish', (req, res) => {
+router.post('/:id/publish', async (req, res) => {
     try {
         const { id } = req.params;
         const { published } = req.body;
 
-        run(
-            "UPDATE schedules SET published = ?, published_at = ?, updated_at = datetime('now') WHERE id = ?",
+        await run(
+            "UPDATE schedules SET published = $1, published_at = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
             [published ? 1 : 0, published ? new Date().toISOString() : null, id]
         );
 
         // When publishing, notify all employees who have shifts in this schedule
         if (published) {
-            const schedule = queryOne('SELECT week_start FROM schedules WHERE id = ?', [id]);
+            const schedule = await queryOne('SELECT week_start FROM schedules WHERE id = $1', [id]);
 
             // Get all employees with shifts in this schedule
-            const employeesWithShifts = query(
-                'SELECT DISTINCT employee_id FROM shifts WHERE schedule_id = ?',
+            const employeesWithShifts = await query(
+                'SELECT DISTINCT employee_id FROM shifts WHERE schedule_id = $1',
                 [id]
             );
 
             // Create notification for each employee
             for (const emp of employeesWithShifts) {
-                run(`
+                await run(`
                     INSERT INTO notifications (user_id, type, title, message, related_entity_type, related_entity_id)
-                    VALUES (?, 'schedule', ?, ?, 'schedule', ?)
+                    VALUES ($1, 'schedule', $2, $3, 'schedule', $4)
                 `, [
                     emp.employee_id,
                     '📅 New Schedule Published',
@@ -180,7 +196,7 @@ router.post('/:id/publish', (req, res) => {
 });
 
 // Get published schedule date ranges (for time-off validation)
-router.get('/published-weeks', (req, res) => {
+router.get('/published-weeks', async (req, res) => {
     try {
         const { storeId } = req.query;
 
@@ -188,8 +204,8 @@ router.get('/published-weeks', (req, res) => {
             return res.status(400).json({ success: false, error: 'Store ID is required' });
         }
 
-        const publishedSchedules = query(
-            'SELECT week_start FROM schedules WHERE store_id = ? AND published = 1 ORDER BY week_start',
+        const publishedSchedules = await query(
+            'SELECT week_start FROM schedules WHERE store_id = $1 AND published = 1 ORDER BY week_start',
             [storeId]
         );
 

@@ -19,6 +19,7 @@ export const removeToken = () => {
 };
 
 // API request helper with authentication
+// API request helper with authentication
 const apiRequest = async (endpoint, options = {}) => {
     const token = getToken();
 
@@ -31,9 +32,35 @@ const apiRequest = async (endpoint, options = {}) => {
         },
     };
 
+    const url = `${API_BASE_URL}${endpoint}`;
+
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-        const data = await response.json();
+        const response = await fetch(url, config);
+
+        // Handle 204 No Content specifically
+        if (response.status === 204) {
+            return null;
+        }
+
+        const contentType = response.headers.get('content-type');
+        let data;
+
+        if (contentType && contentType.includes('application/json')) {
+            try {
+                data = await response.json();
+            } catch (e) {
+                console.error(`Failed to parse JSON from ${url}`, e);
+                throw new Error('Invalid JSON response from server');
+            }
+        } else {
+            // If not JSON, try to read text for error message
+            const text = await response.text();
+            if (!response.ok) {
+                throw new Error(text || `HTTP error! status: ${response.status}`);
+            }
+            // If success but not JSON? Probably shouldn't happen in this API, but return text
+            return text;
+        }
 
         if (!response.ok) {
             throw new Error(data.error || `HTTP error! status: ${response.status}`);
@@ -41,7 +68,7 @@ const apiRequest = async (endpoint, options = {}) => {
 
         return data;
     } catch (error) {
-        console.error('API request error:', error);
+        console.error(`API Request Failed: ${url}`, error);
         throw error;
     }
 };

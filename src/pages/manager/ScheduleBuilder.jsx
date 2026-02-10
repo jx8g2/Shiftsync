@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { employeesAPI } from '../../utils/api';
-import { DAYS_OF_WEEK, DAY_LABELS, ROLES, getWeekStart, addDays, formatDate } from '../../utils/constants';
+import { DAYS_OF_WEEK, DAY_LABELS, ROLES, getWeekStart, addDays, formatDate } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './ScheduleBuilder.css';
 

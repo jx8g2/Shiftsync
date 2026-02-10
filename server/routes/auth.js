@@ -25,8 +25,8 @@ router.post('/login', async (req, res) => {
         }
 
         // Find user by email or username
-        const user = queryOne(
-            'SELECT * FROM employees WHERE email = ? OR username = ?',
+        const user = await queryOne(
+            'SELECT * FROM employees WHERE email = $1 OR username = $2',
             [loginIdentifier, loginIdentifier]
         );
 
@@ -67,14 +67,14 @@ router.post('/login', async (req, res) => {
         );
 
         // Get user's default shifts
-        const shifts = query(
-            'SELECT * FROM employee_default_shifts WHERE employee_id = ? ORDER BY day_of_week',
+        const shifts = await query(
+            'SELECT * FROM employee_default_shifts WHERE employee_id = $1 ORDER BY day_of_week',
             [user.id]
         );
 
         // Get user's additional roles
-        const roles = query(
-            'SELECT role_name FROM employee_additional_roles WHERE employee_id = ?',
+        const roles = await query(
+            'SELECT role_name FROM employee_additional_roles WHERE employee_id = $1',
             [user.id]
         );
 
@@ -121,8 +121,8 @@ router.post('/login', async (req, res) => {
 // Get current user info
 router.get('/me', authenticateToken, async (req, res) => {
     try {
-        const user = queryOne(
-            'SELECT * FROM employees WHERE id = ?',
+        const user = await queryOne(
+            'SELECT * FROM employees WHERE id = $1',
             [req.user.id]
         );
 
@@ -134,14 +134,14 @@ router.get('/me', authenticateToken, async (req, res) => {
         }
 
         // Get user's default shifts
-        const shifts = query(
-            'SELECT * FROM employee_default_shifts WHERE employee_id = ? ORDER BY day_of_week',
+        const shifts = await query(
+            'SELECT * FROM employee_default_shifts WHERE employee_id = $1 ORDER BY day_of_week',
             [user.id]
         );
 
         // Get user's additional roles
-        const roles = query(
-            'SELECT role_name FROM employee_additional_roles WHERE employee_id = ?',
+        const roles = await query(
+            'SELECT role_name FROM employee_additional_roles WHERE employee_id = $1',
             [user.id]
         );
 

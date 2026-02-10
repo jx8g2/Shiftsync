@@ -58,7 +58,7 @@ function requireAdmin(req, res, next) {
 // Everyone can see everyone for messaging purposes
 router.get('/chat-contacts', authenticateToken, async (req, res) => {
     try {
-        const employees = query('SELECT id, name, avatar, role, position, status FROM employees WHERE status = ? ORDER BY name', ['active']);
+        const employees = await query('SELECT id, name, avatar, role, position, status FROM employees WHERE status = $1 ORDER BY name', ['active']);
 
         const result = employees.map(emp => ({
             id: emp.id,
@@ -95,20 +95,20 @@ router.get('/', authenticateToken, async (req, res) => {
 
         if (isManager && !isAdmin) {
             // Managers can only see employees with role 'employee' or themselves
-            employeesQuery += ' WHERE role = ? OR id = ?';
+            employeesQuery += ' WHERE role = $1 OR id = $2';
             queryParams = ['employee', req.user.id];
         }
 
         employeesQuery += ' ORDER BY name';
-        const employees = query(employeesQuery, queryParams);
+        const employees = await query(employeesQuery, queryParams);
 
-        const result = employees.map(emp => {
-            const shifts = query(
-                'SELECT * FROM employee_default_shifts WHERE employee_id = ?',
+        const result = await Promise.all(employees.map(async emp => {
+            const shifts = await query(
+                'SELECT * FROM employee_default_shifts WHERE employee_id = $1',
                 [emp.id]
             );
-            const roles = query(
-                'SELECT role_name FROM employee_additional_roles WHERE employee_id = ?',
+            const roles = await query(
+                'SELECT role_name FROM employee_additional_roles WHERE employee_id = $1',
                 [emp.id]
             );
 
@@ -136,7 +136,7 @@ router.get('/', authenticateToken, async (req, res) => {
                 })),
                 additionalRoles: roles.map(r => r.role_name)
             };
-        });
+        }));
 
         res.json({
             success: true,
@@ -157,7 +157,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
 
-        const emp = queryOne('SELECT * FROM employees WHERE id = ?', [id]);
+        const emp = await queryOne('SELECT * FROM employees WHERE id = $1', [id]);
 
         if (!emp) {
             return res.status(404).json({
@@ -166,13 +166,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        const shifts = query(
-            'SELECT * FROM employee_default_shifts WHERE employee_id = ? ORDER BY day_of_week',
+        const shifts = await query(
+            'SELECT * FROM employee_default_shifts WHERE employee_id = $1 ORDER BY day_of_week',
             [id]
         );
 
-        const roles = query(
-            'SELECT role_name FROM employee_additional_roles WHERE employee_id = ?',
+        const roles = await query(
+            'SELECT role_name FROM employee_additional_roles WHERE employee_id = $1',
             [id]
         );
 
@@ -254,8 +254,8 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         }
 
         // Check if username or email already exists
-        const existing = queryOne(
-            'SELECT id FROM employees WHERE username = ? OR email = ?',
+        const existing = await queryOne(
+            'SELECT id FROM employees WHERE username = $1 OR email = $2',
             [username, email]
         );
 
@@ -273,11 +273,13 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         const avatar = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
         // Insert employee
-        const result = run(`
+        // Use RETURNING id to get the new ID
+        const result = await queryOne(`
             INSERT INTO employees (
                 username, password_hash, name, email, phone, 
                 role, position, store_id, avatar, hourly_rate, max_hours_per_week
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING id
         `, [
             username,
             passwordHash,
@@ -292,46 +294,42 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
             maxHoursPerWeek || 40
         ]);
 
-        const employeeId = result.lastInsertRowid;
+        const employeeId = result.id;
 
         // Insert default shifts
         if (defaultShifts && Array.isArray(defaultShifts)) {
-            const insertShift = db.prepare(`
-                INSERT INTO employee_default_shifts 
-                (employee_id, day_of_week, start_time, end_time, primary_role, is_off)
-                VALUES (?, ?, ?, ?, ?, ?)
-            `);
-
             for (const shift of defaultShifts) {
-                insertShift.run(
+                await run(`
+                    INSERT INTO employee_default_shifts 
+                    (employee_id, day_of_week, start_time, end_time, primary_role, is_off)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [
                     employeeId,
                     shift.dayOfWeek,
                     shift.isOff ? null : shift.startTime,
                     shift.isOff ? null : shift.endTime,
                     shift.primaryRole || null,
                     shift.isOff ? 1 : 0
-                );
+                ]);
             }
         }
 
         // Insert additional roles
         if (additionalRoles && Array.isArray(additionalRoles)) {
-            const insertRole = db.prepare(`
-                INSERT INTO employee_additional_roles (employee_id, role_name)
-                VALUES (?, ?)
-            `);
-
             for (const role of additionalRoles) {
                 if (role) {
-                    insertRole.run(employeeId, role);
+                    await run(`
+                        INSERT INTO employee_additional_roles (employee_id, role_name)
+                        VALUES ($1, $2)
+                    `, [employeeId, role]);
                 }
             }
         }
 
         // Fetch complete employee data
-        const newEmployee = queryOne('SELECT * FROM employees WHERE id = ?', [employeeId]);
-        const shifts = query('SELECT * FROM employee_default_shifts WHERE employee_id = ?', [employeeId]);
-        const roles = query('SELECT role_name FROM employee_additional_roles WHERE employee_id = ?', [employeeId]);
+        const newEmployee = await queryOne('SELECT * FROM employees WHERE id = $1', [employeeId]);
+        const shifts = await query('SELECT * FROM employee_default_shifts WHERE employee_id = $1', [employeeId]);
+        const roles = await query('SELECT role_name FROM employee_additional_roles WHERE employee_id = $1', [employeeId]);
 
         const employee = {
             id: newEmployee.id,
@@ -391,7 +389,7 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
         } = req.body;
 
         // Check if employee exists
-        const existing = queryOne('SELECT * FROM employees WHERE id = ?', [id]);
+        const existing = await queryOne('SELECT * FROM employees WHERE id = $1', [id]);
 
         if (!existing) {
             return res.status(404).json({
@@ -402,8 +400,8 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
 
         // Check for duplicate username/email (excluding current employee)
         if (username || email) {
-            const duplicate = queryOne(
-                'SELECT id FROM employees WHERE (username = ? OR email = ?) AND id != ?',
+            const duplicate = await queryOne(
+                'SELECT id FROM employees WHERE (username = $1 OR email = $2) AND id != $3',
                 [username || '', email || '', id]
             );
 
@@ -418,96 +416,93 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
         // Build update query
         let updates = [];
         let values = [];
+        let paramCount = 1;
 
         if (username) {
-            updates.push('username = ?');
+            updates.push(`username = $${paramCount++}`);
             values.push(username);
         }
         if (password) {
             const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-            updates.push('password_hash = ?');
+            updates.push(`password_hash = $${paramCount++}`);
             values.push(passwordHash);
         }
         if (name) {
-            updates.push('name = ?');
+            updates.push(`name = $${paramCount++}`);
             values.push(name);
             const avatar = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-            updates.push('avatar = ?');
+            updates.push(`avatar = $${paramCount++}`);
             values.push(avatar);
         }
         if (email) {
-            updates.push('email = ?');
+            updates.push(`email = $${paramCount++}`);
             values.push(email);
         }
         if (phone !== undefined) {
-            updates.push('phone = ?');
+            updates.push(`phone = $${paramCount++}`);
             values.push(phone);
         }
         if (position) {
-            updates.push('position = ?');
+            updates.push(`position = $${paramCount++}`);
             values.push(position);
         }
         if (hourlyRate !== undefined) {
-            updates.push('hourly_rate = ?');
+            updates.push(`hourly_rate = $${paramCount++}`);
             values.push(hourlyRate);
         }
         if (maxHoursPerWeek !== undefined) {
-            updates.push('max_hours_per_week = ?');
+            updates.push(`max_hours_per_week = $${paramCount++}`);
             values.push(maxHoursPerWeek);
         }
         if (status) {
-            updates.push('status = ?');
+            updates.push(`status = $${paramCount++}`);
             values.push(status);
         }
 
         if (updates.length > 0) {
-            updates.push("updated_at = datetime('now')");
+            updates.push(`updated_at = CURRENT_TIMESTAMP`);
             values.push(id);
-            run(`UPDATE employees SET ${updates.join(', ')} WHERE id = ?`, values);
+            await run(`UPDATE employees SET ${updates.join(', ')} WHERE id = $${paramCount}`, values);
         }
 
         // Update default shifts
         if (defaultShifts && Array.isArray(defaultShifts)) {
-            run('DELETE FROM employee_default_shifts WHERE employee_id = ?', [id]);
-
-            const insertShift = db.prepare(`
-                INSERT INTO employee_default_shifts 
-                (employee_id, day_of_week, start_time, end_time, primary_role, is_off)
-                VALUES (?, ?, ?, ?, ?, ?)
-            `);
+            await run('DELETE FROM employee_default_shifts WHERE employee_id = $1', [id]);
 
             for (const shift of defaultShifts) {
-                insertShift.run(
+                await run(`
+                    INSERT INTO employee_default_shifts 
+                    (employee_id, day_of_week, start_time, end_time, primary_role, is_off)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [
                     id,
                     shift.dayOfWeek,
                     shift.isOff ? null : shift.startTime,
                     shift.isOff ? null : shift.endTime,
                     shift.primaryRole || null,
                     shift.isOff ? 1 : 0
-                );
+                ]);
             }
         }
 
         // Update additional roles
         if (additionalRoles && Array.isArray(additionalRoles)) {
-            run('DELETE FROM employee_additional_roles WHERE employee_id = ?', [id]);
-
-            const insertRole = db.prepare(`
-                INSERT INTO employee_additional_roles (employee_id, role_name)
-                VALUES (?, ?)
-            `);
+            await run('DELETE FROM employee_additional_roles WHERE employee_id = $1', [id]);
 
             for (const role of additionalRoles) {
                 if (role) {
-                    insertRole.run(id, role);
+                    await run(`
+                        INSERT INTO employee_additional_roles (employee_id, role_name)
+                        VALUES ($1, $2)
+                    `, [id, role]);
                 }
             }
         }
 
         // Fetch updated employee
-        const emp = queryOne('SELECT * FROM employees WHERE id = ?', [id]);
-        const shifts = query('SELECT * FROM employee_default_shifts WHERE employee_id = ?', [id]);
-        const roles = query('SELECT role_name FROM employee_additional_roles WHERE employee_id = ?', [id]);
+        const emp = await queryOne('SELECT * FROM employees WHERE id = $1', [id]);
+        const shifts = await query('SELECT * FROM employee_default_shifts WHERE employee_id = $1', [id]);
+        const roles = await query('SELECT role_name FROM employee_additional_roles WHERE employee_id = $1', [id]);
 
         const employee = {
             id: emp.id,
@@ -554,7 +549,7 @@ router.delete('/:id', authenticateToken, requireManager, async (req, res) => {
         const { id } = req.params;
 
         // Check if employee exists and is not a manager
-        const existing = queryOne('SELECT role FROM employees WHERE id = ?', [id]);
+        const existing = await queryOne('SELECT role FROM employees WHERE id = $1', [id]);
 
         if (!existing) {
             return res.status(404).json({
@@ -571,7 +566,7 @@ router.delete('/:id', authenticateToken, requireManager, async (req, res) => {
         }
 
         // Delete employee (cascade will handle related records)
-        run('DELETE FROM employees WHERE id = ?', [id]);
+        await run('DELETE FROM employees WHERE id = $1', [id]);
 
         res.json({
             success: true,

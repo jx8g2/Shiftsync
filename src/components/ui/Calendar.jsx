@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DAYS_OF_WEEK, DAY_LABELS, addDays, formatDate } from '../../utils/constants';
+import { DAYS_OF_WEEK, DAY_LABELS, addDays, formatDate } from '../../data/mockData';
 import './Calendar.css';
 
 function Calendar({

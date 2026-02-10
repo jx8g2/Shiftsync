@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { getWeekStart, addDays, formatDate, DAYS_OF_WEEK } from '../../utils/constants';
+import { getWeekStart, addDays, formatDate, DAYS_OF_WEEK } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './LaborReports.css';
 

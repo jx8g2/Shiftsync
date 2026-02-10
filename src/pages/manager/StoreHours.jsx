@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { DAYS_OF_WEEK, DAY_LABELS } from '../../utils/constants';
+import { DAYS_OF_WEEK, DAY_LABELS } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './StoreHours.css';
 

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { employeesAPI, schedulesAPI, requestsAPI } from '../utils/api';
-// import { initialData } from '../data/mockData'; // Removed mock data dependency
+import { initialData } from '../data/mockData'; // Fallback for non-DB parts like reminders
 
 const DataContext = createContext(null);
 
@@ -12,9 +12,11 @@ export function DataProvider({ children }) {
     const [employees, setEmployees] = useState([]);
     const [schedules, setSchedules] = useState([]);
     const [requests, setRequests] = useState([]);
-    const [stores, setStores] = useState([]); // Fallback until stores API
-    const [reminders, setReminders] = useState([]);
-    const [shiftRequirements, setShiftRequirements] = useState([]);
+    const [stores, setStores] = useState(initialData.stores); // Fallback until stores API
+
+    // Non-DB parts (Local Storage fallback for now)
+    const [reminders, setReminders] = useState(initialData.reminders);
+    const [shiftRequirements, setShiftRequirements] = useState(initialData.shiftRequirements);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -62,8 +64,8 @@ export function DataProvider({ children }) {
             const savedData = localStorage.getItem('shiftsync_data_local');
             if (savedData) {
                 const parsed = JSON.parse(savedData);
-                setReminders(parsed.reminders || []);
-                setShiftRequirements(parsed.shiftRequirements || []);
+                setReminders(parsed.reminders || initialData.reminders);
+                setShiftRequirements(parsed.shiftRequirements || initialData.shiftRequirements);
             }
 
         } catch (err) {

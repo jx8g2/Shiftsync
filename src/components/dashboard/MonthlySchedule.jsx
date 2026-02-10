@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
-import { DAYS_OF_WEEK } from '../../utils/constants';
+import { DAYS_OF_WEEK } from '../../data/mockData';
 import './MonthlySchedule.css';
 
 function MonthlySchedule() {

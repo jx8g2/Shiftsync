@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { employeesAPI } from '../../utils/api';
-import { DAYS_OF_WEEK, DAY_LABELS, ROLES, POSITIONS } from '../../utils/constants';
+import { DAYS_OF_WEEK, DAY_LABELS, ROLES, POSITIONS } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './EmployeeForm.css';
 

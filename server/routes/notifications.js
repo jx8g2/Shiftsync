@@ -29,17 +29,18 @@ router.get('/', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const { unreadOnly, limit = 50 } = req.query;
 
-        let notificationsQuery = 'SELECT * FROM notifications WHERE user_id = ?';
+        let notificationsQuery = 'SELECT * FROM notifications WHERE user_id = $1';
         const params = [userId];
+        let paramIndex = 2;
 
         if (unreadOnly === 'true') {
-            notificationsQuery += ' AND is_read = 0';
+            notificationsQuery += ' AND is_read = false';
         }
 
-        notificationsQuery += ' ORDER BY created_at DESC LIMIT ?';
+        notificationsQuery += ` ORDER BY created_at DESC LIMIT $${paramIndex}`;
         params.push(parseInt(limit));
 
-        const notifications = query(notificationsQuery, params);
+        const notifications = await query(notificationsQuery, params);
 
         res.json({
             success: true,
@@ -51,8 +52,8 @@ router.get('/', authenticateToken, async (req, res) => {
                 message: n.message,
                 relatedEntityType: n.related_entity_type,
                 relatedEntityId: n.related_entity_id,
-                isRead: Boolean(n.is_read),
-                createdAt: n.created_at ? n.created_at.replace(' ', 'T') + 'Z' : null
+                isRead: n.is_read,
+                createdAt: n.created_at
             }))
         });
     } catch (error) {
@@ -65,11 +66,11 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/unread-count', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        const result = queryOne('SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0', [userId]);
+        const result = await queryOne('SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false', [userId]);
 
         res.json({
             success: true,
-            unreadCount: result?.count || 0
+            unreadCount: parseInt(result?.count || 0)
         });
     } catch (error) {
         console.error('Get unread count error:', error);
@@ -84,13 +85,13 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
         const userId = req.user.id;
 
         // Verify ownership
-        const notification = queryOne('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [id, userId]);
+        const notification = await queryOne('SELECT * FROM notifications WHERE id = $1 AND user_id = $2', [id, userId]);
 
         if (!notification) {
             return res.status(404).json({ success: false, error: 'Notification not found' });
         }
 
-        run('UPDATE notifications SET is_read = 1 WHERE id = ?', [id]);
+        await run('UPDATE notifications SET is_read = true WHERE id = $1', [id]);
 
         res.json({ success: true, message: 'Notification marked as read' });
     } catch (error) {
@@ -103,7 +104,7 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
 router.put('/mark-all-read', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        run('UPDATE notifications SET is_read = 1 WHERE user_id = ?', [userId]);
+        await run('UPDATE notifications SET is_read = true WHERE user_id = $1', [userId]);
 
         res.json({ success: true, message: 'All notifications marked as read' });
     } catch (error) {
@@ -119,13 +120,13 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         const userId = req.user.id;
 
         // Verify ownership
-        const notification = queryOne('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [id, userId]);
+        const notification = await queryOne('SELECT * FROM notifications WHERE id = $1 AND user_id = $2', [id, userId]);
 
         if (!notification) {
             return res.status(404).json({ success: false, error: 'Notification not found' });
         }
 
-        run('DELETE FROM notifications WHERE id = ?', [id]);
+        await run('DELETE FROM notifications WHERE id = $1', [id]);
 
         res.json({ success: true, message: 'Notification deleted' });
     } catch (error) {

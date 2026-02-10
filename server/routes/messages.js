@@ -51,23 +51,23 @@ router.get('/conversations', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const conversations = query(`
+        const conversations = await query(`
             SELECT c.*, 
                    (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
                    (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) as last_message_at
             FROM conversations c
             INNER JOIN conversation_members cm ON c.id = cm.conversation_id
-            WHERE cm.user_id = ?
-            ORDER BY last_message_at DESC
+            WHERE cm.user_id = $1
+            ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC
         `, [userId]);
 
         // Get members for each conversation
-        const result = conversations.map(conv => {
-            const members = query(`
+        const result = await Promise.all(conversations.map(async conv => {
+            const members = await query(`
                 SELECT e.id, e.name, e.avatar, e.role
                 FROM employees e
                 INNER JOIN conversation_members cm ON e.id = cm.user_id
-                WHERE cm.conversation_id = ?
+                WHERE cm.conversation_id = $1
             `, [conv.id]);
 
             return {
@@ -76,11 +76,11 @@ router.get('/conversations', authenticateToken, async (req, res) => {
                 isTeam: Boolean(conv.is_team),
                 createdBy: conv.created_by,
                 createdAt: conv.created_at,
-                messageCount: conv.message_count,
+                messageCount: parseInt(conv.message_count),
                 lastMessageAt: conv.last_message_at,
                 members
             };
-        });
+        }));
 
         res.json({ success: true, conversations: result });
     } catch (error) {
@@ -100,25 +100,26 @@ router.post('/conversations', authenticateToken, async (req, res) => {
         }
 
         // Create conversation
-        const result = run(`
+        const result = await queryOne(`
             INSERT INTO conversations (name, is_team, created_by)
-            VALUES (?, ?, ?)
+            VALUES ($1, $2, $3)
+            RETURNING id
         `, [name || null, isTeam ? 1 : 0, createdBy]);
 
-        const conversationId = result.lastInsertRowid;
+        const conversationId = result.id;
 
         // Add creator and all members
         const allMembers = [...new Set([createdBy, ...memberIds])];
         for (const memberId of allMembers) {
-            run(`INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)`, [conversationId, memberId]);
+            await run(`INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2)`, [conversationId, memberId]);
         }
 
-        const conversation = queryOne('SELECT * FROM conversations WHERE id = ?', [conversationId]);
-        const members = query(`
+        const conversation = await queryOne('SELECT * FROM conversations WHERE id = $1', [conversationId]);
+        const members = await query(`
             SELECT e.id, e.name, e.avatar, e.role
             FROM employees e
             INNER JOIN conversation_members cm ON e.id = cm.user_id
-            WHERE cm.conversation_id = ?
+            WHERE cm.conversation_id = $1
         `, [conversationId]);
 
         res.status(201).json({
@@ -146,8 +147,8 @@ router.get('/conversations/:id/messages', authenticateToken, async (req, res) =>
         const { limit = 50, before } = req.query;
 
         // Verify user is a member
-        const isMember = queryOne(
-            'SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?',
+        const isMember = await queryOne(
+            'SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2',
             [id, userId]
         );
 
@@ -159,19 +160,20 @@ router.get('/conversations/:id/messages', authenticateToken, async (req, res) =>
             SELECT m.*, e.name as sender_name, e.avatar as sender_avatar
             FROM messages m
             LEFT JOIN employees e ON m.sender_id = e.id
-            WHERE m.conversation_id = ?
+            WHERE m.conversation_id = $1
         `;
         const params = [id];
+        let paramCount = 2;
 
         if (before) {
-            messagesQuery += ' AND m.id < ?';
+            messagesQuery += ` AND m.id < $${paramCount++}`;
             params.push(before);
         }
 
-        messagesQuery += ' ORDER BY m.created_at DESC LIMIT ?';
+        messagesQuery += ` ORDER BY m.created_at DESC LIMIT $${paramCount++}`;
         params.push(parseInt(limit));
 
-        const messages = query(messagesQuery, params);
+        const messages = await query(messagesQuery, params);
 
         // Decrypt messages
         const result = messages.map(msg => {
@@ -189,7 +191,7 @@ router.get('/conversations/:id/messages', authenticateToken, async (req, res) =>
                 senderName: msg.sender_name,
                 senderAvatar: msg.sender_avatar,
                 content,
-                createdAt: msg.created_at ? msg.created_at.replace(' ', 'T') + 'Z' : null
+                createdAt: msg.created_at
             };
         }).reverse(); // Reverse to show oldest first
 
@@ -212,8 +214,8 @@ router.post('/conversations/:id/messages', authenticateToken, async (req, res) =
         }
 
         // Verify user is a member
-        const isMember = queryOne(
-            'SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?',
+        const isMember = await queryOne(
+            'SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2',
             [id, senderId]
         );
 
@@ -223,32 +225,34 @@ router.post('/conversations/:id/messages', authenticateToken, async (req, res) =
 
         // Encrypt and store message
         const { encrypted, iv } = encrypt(content);
-        const result = run(`
+        const result = await queryOne(`
             INSERT INTO messages (conversation_id, sender_id, content_encrypted, iv)
-            VALUES (?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
         `, [id, senderId, encrypted, iv]);
 
-        const messageId = result.lastInsertRowid;
-        const msg = queryOne(`
+        const messageId = result.id;
+        const msg = await queryOne(`
             SELECT m.*, e.name as sender_name, e.avatar as sender_avatar
             FROM messages m
             LEFT JOIN employees e ON m.sender_id = e.id
-            WHERE m.id = ?
+            WHERE m.id = $1
         `, [messageId]);
 
         // Create notifications for other members
-        const otherMembers = query(
-            'SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?',
+        const otherMembers = await query(
+            'SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id != $2',
             [id, senderId]
         );
 
-        const senderName = queryOne('SELECT name FROM employees WHERE id = ?', [senderId])?.name || 'Someone';
+        const senderName = await queryOne('SELECT name FROM employees WHERE id = $1', [senderId]);
+        const senderNameStr = senderName?.name || 'Someone';
 
         for (const member of otherMembers) {
-            run(`
+            await run(`
                 INSERT INTO notifications (user_id, type, title, message, related_entity_type, related_entity_id)
-                VALUES (?, 'message', ?, ?, 'conversation', ?)
-            `, [member.user_id, `New message from ${senderName}`, content.substring(0, 100), id]);
+                VALUES ($1, 'message', $2, $3, 'conversation', $4)
+            `, [member.user_id, `New message from ${senderNameStr}`, content.substring(0, 100), id]);
         }
 
         res.status(201).json({
@@ -260,7 +264,7 @@ router.post('/conversations/:id/messages', authenticateToken, async (req, res) =
                 senderName: msg.sender_name,
                 senderAvatar: msg.sender_avatar,
                 content,
-                createdAt: msg.created_at ? msg.created_at.replace(' ', 'T') + 'Z' : null
+                createdAt: msg.created_at
             }
         });
     } catch (error) {

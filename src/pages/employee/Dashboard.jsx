@@ -1,6 +1,6 @@
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { formatTime, formatDate, getWeekStart } from '../../utils/constants';
+import { formatTime, formatDate, getWeekStart } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import MonthlySchedule from '../../components/dashboard/MonthlySchedule';
 import './Dashboard.css';

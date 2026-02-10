@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { employeesAPI } from '../../utils/api';
-import { formatDate, getWeekStart } from '../../utils/constants';
+import { formatDate, getWeekStart } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import MonthlySchedule from '../../components/dashboard/MonthlySchedule';
 import '../employee/Dashboard.css';

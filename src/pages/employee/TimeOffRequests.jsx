@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { TIME_OFF_TYPES, formatDate, formatDateFull, addDays } from '../../utils/constants';
+import { TIME_OFF_TYPES, formatDate, formatDateFull, addDays } from '../../data/mockData';
 import { schedulesAPI } from '../../utils/api';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
