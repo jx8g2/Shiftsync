@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { messagesAPI, employeesAPI } from '../utils/api';
+import { useSocketEvent } from '../context/SocketContext';
 import Card from '../components/ui/Card';
 import './Chat.css';
 
@@ -33,16 +34,13 @@ function Chat() {
         scrollToBottom();
     }, [messages]);
 
-    // Poll for new messages every 5 seconds
-    useEffect(() => {
-        let interval;
+    // Listen for real-time WebSocket updates instead of polling
+    useSocketEvent('data_refresh', useCallback(() => {
+        loadConversations();
         if (activeConversation) {
-            interval = setInterval(() => {
-                loadMessages(activeConversation.id);
-            }, 5000);
+            loadMessages(activeConversation.id);
         }
-        return () => clearInterval(interval);
-    }, [activeConversation]);
+    }, [activeConversation]));
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

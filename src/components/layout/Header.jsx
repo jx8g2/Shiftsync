@@ -3,12 +3,14 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useNotifications } from '../../context/NotificationContext';
+import { useStoreFilter } from '../../context/StoreFilterContext';
 import './Header.css';
 
 function Header({ onMenuClick }) {
     const { user, isEmployee, isManager, isAdmin } = useAuth();
     const { theme, toggleTheme } = useTheme();
-    const { notifications, unreadCount, markAsRead, markAllAsRead, dismissNotification } = useNotifications();
+    const { notifications, unreadCount, markAllAsRead, dismissNotification, navigateToNotification } = useNotifications();
+    const { stores, selectedStoreId, setSelectedStoreId } = useStoreFilter();
     const location = useLocation();
 
     const [showNotifications, setShowNotifications] = useState(false);
@@ -48,6 +50,15 @@ function Header({ onMenuClick }) {
         if (path === '/admin') return 'Admin Dashboard';
         if (path === '/admin/managers') return 'Manager Management';
         if (path.startsWith('/admin/managers/')) return 'Manager Form';
+        if (path === '/admin/stores') return 'Store Management';
+        if (path.startsWith('/admin/stores/')) return 'Store Form';
+        if (path === '/admin/employees') return 'Employee Management';
+        if (path.startsWith('/admin/employees/')) return 'Employee Form';
+        if (path === '/admin/schedule-builder') return 'Schedule Builder';
+        if (path === '/admin/requests') return 'Request Approvals';
+        if (path === '/admin/store-hours') return 'Store Hours';
+        if (path === '/admin/reports') return 'Labor Reports';
+        if (path === '/admin/settings') return 'Backup Settings';
 
         return 'ShiftSync';
     };
@@ -108,6 +119,23 @@ function Header({ onMenuClick }) {
                     {theme === 'dark' ? '☀️' : '🌙'}
                 </button>
 
+                {/* Admin Store Filter */}
+                {isAdmin && (
+                    <div className="header-store-filter">
+                        <span className="store-filter-icon">🏪</span>
+                        <select
+                            value={selectedStoreId}
+                            onChange={(e) => setSelectedStoreId(e.target.value)}
+                            className="store-filter-select"
+                        >
+                            <option value="all">All Stores</option>
+                            {stores.map(store => (
+                                <option key={store.id} value={store.id}>{store.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
                 {/* Notifications */}
                 <div className="header-notifications" ref={notificationRef}>
                     <button
@@ -145,7 +173,7 @@ function Header({ onMenuClick }) {
                                         <div
                                             key={notification.id}
                                             className={`notification-item ${notification.read ? 'read' : 'unread'}`}
-                                            onClick={() => markAsRead(notification.id)}
+                                            onClick={() => navigateToNotification(notification)}
                                         >
                                             <span className="notification-type-icon">
                                                 {getNotificationIcon(notification.type)}

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { employeesAPI } from '../../utils/api';
+import { useStoreFilter } from '../../context/StoreFilterContext';
 import { DAYS_OF_WEEK, DAY_LABELS, ROLES, POSITIONS } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './EmployeeForm.css';
@@ -8,13 +10,17 @@ import './EmployeeForm.css';
 function EmployeeForm() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { isAdmin } = useAuth();
+    const { stores, effectiveStoreId } = useStoreFilter();
     const isEditing = Boolean(id);
+    const basePath = isAdmin ? '/admin' : '/manager';
 
     const [loading, setLoading] = useState(isEditing);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
     // Basic info
+    const [storeId, setStoreId] = useState(effectiveStoreId || '');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -41,6 +47,12 @@ function EmployeeForm() {
     const [additionalRoles, setAdditionalRoles] = useState([]);
     const [newRole, setNewRole] = useState('');
 
+    useEffect(() => {
+        if (!isEditing && !storeId && stores.length > 0) {
+            setStoreId(stores[0].id);
+        }
+    }, [isEditing, storeId, stores]);
+
     // Fetch employee data if editing
     useEffect(() => {
         if (isEditing) {
@@ -54,6 +66,7 @@ function EmployeeForm() {
             const response = await employeesAPI.getById(id);
             if (response.success) {
                 const emp = response.employee;
+                setStoreId(emp.storeId || '');
                 setUsername(emp.username || '');
                 setName(emp.name || '');
                 setEmail(emp.email || '');
@@ -134,6 +147,10 @@ function EmployeeForm() {
     };
 
     const validateForm = () => {
+        if (isAdmin && !storeId) {
+            setError('Please select a store');
+            return false;
+        }
         if (!username.trim()) {
             setError('Username is required');
             return false;
@@ -191,6 +208,10 @@ function EmployeeForm() {
                 additionalRoles
             };
 
+            if (isAdmin) {
+                employeeData.storeId = storeId;
+            }
+
             // Include password only if provided
             if (password) {
                 employeeData.password = password;
@@ -204,7 +225,7 @@ function EmployeeForm() {
             }
 
             if (response.success) {
-                navigate('/manager/employees');
+                navigate(`${basePath}/employees`);
             } else {
                 setError(response.error || 'Failed to save employee');
             }
@@ -231,7 +252,7 @@ function EmployeeForm() {
             <div className="page-header">
                 <button
                     className="btn btn-secondary back-btn"
-                    onClick={() => navigate('/manager/employees')}
+                    onClick={() => navigate(`${basePath}/employees`)}
                 >
                     ← Back
                 </button>
@@ -260,6 +281,25 @@ function EmployeeForm() {
                     </h2>
 
                     <div className="form-grid">
+                        {isAdmin && (
+                            <div className="form-group span-full">
+                                <label className="form-label">Assigned Store *</label>
+                                <select
+                                    className="form-input"
+                                    value={storeId}
+                                    onChange={(e) => setStoreId(e.target.value)}
+                                    required
+                                >
+                                    <option value="">Select a store...</option>
+                                    {stores.map(store => (
+                                        <option key={store.id} value={store.id}>
+                                            {store.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         <div className="form-group">
                             <label className="form-label">Username *</label>
                             <input
@@ -517,7 +557,7 @@ function EmployeeForm() {
                     <button
                         type="button"
                         className="btn btn-secondary btn-lg"
-                        onClick={() => navigate('/manager/employees')}
+                        onClick={() => navigate(`${basePath}/employees`)}
                         disabled={saving}
                     >
                         Cancel

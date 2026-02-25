@@ -690,6 +690,46 @@ select {
     padding: var(--spacing-md);
     padding-top: calc(var(--header-height) + var(--spacing-md));
   }
+
+  /* Mobile Tables */
+  .table th,
+  .table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--font-size-sm);
+  }
+
+  .table-container {
+    margin: 0 -var(--spacing-md);
+    /* Full width on mobile */
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+  }
+
+  /* Mobile Typography & Spacing */
+  h1 {
+    font-size: var(--font-size-2xl);
+  }
+
+  h2 {
+    font-size: var(--font-size-xl);
+  }
+
+  h3 {
+    font-size: var(--font-size-lg);
+  }
+
+  .page-header {
+    margin-bottom: var(--spacing-lg);
+  }
+
+  /* Mobile Forms */
+  .form-input,
+  .form-select,
+  .btn {
+    min-height: 44px;
+    /* Better touch targets */
+  }
 }
 
 /* Flex Utilities */

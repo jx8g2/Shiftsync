@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { employeesAPI } from '../../utils/api';
+import { employeesAPI, storesAPI } from '../../utils/api';
 import Card from '../../components/ui/Card';
 import './ManagerForm.css';
 
@@ -21,12 +21,26 @@ function ManagerForm() {
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [status, setStatus] = useState('active');
+    const [storeId, setStoreId] = useState('');
+    const [stores, setStores] = useState([]);
 
     useEffect(() => {
+        fetchStores();
         if (isEditing) {
             fetchManager();
         }
     }, [id]);
+
+    const fetchStores = async () => {
+        try {
+            const res = await storesAPI.getAll();
+            if (res.success) {
+                setStores(res.stores);
+            }
+        } catch (err) {
+            console.error('Failed to fetch stores:', err);
+        }
+    };
 
     const fetchManager = async () => {
         try {
@@ -39,6 +53,7 @@ function ManagerForm() {
                 setEmail(mgr.email || '');
                 setPhone(mgr.phone || '');
                 setStatus(mgr.status || 'active');
+                setStoreId(mgr.storeId || '');
             } else {
                 setError(response.error || 'Failed to load manager');
             }
@@ -93,7 +108,8 @@ function ManagerForm() {
                 phone: phone.trim(),
                 role: 'manager',
                 position: 'Store Manager',
-                status
+                status,
+                storeId: storeId || undefined
             };
 
             if (password) {
@@ -249,6 +265,22 @@ function ManagerForm() {
                                 </select>
                             </div>
                         )}
+
+                        <div className="form-group">
+                            <label className="form-label">Assigned Store</label>
+                            <select
+                                className="form-input"
+                                value={storeId}
+                                onChange={(e) => setStoreId(e.target.value)}
+                            >
+                                <option value="">— Select Store —</option>
+                                {stores.map(store => (
+                                    <option key={store.id} value={store.id}>
+                                        {store.name} ({store.id})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                 </Card>
 

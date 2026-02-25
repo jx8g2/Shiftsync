@@ -1,5 +1,7 @@
 const express = require('express');
 const { pool, query, queryOne, run } = require('../db');
+const { sendPushNotification } = require('../utils/push');
+const { publishUpdate, broadcastUpdate } = require('../utils/redis');
 const router = express.Router();
 
 // Get schedule for a specific week and store
@@ -138,8 +140,21 @@ router.post('/', async (req, res) => {
                     `Your schedule for the week of ${weekStart} has been published. Check your shifts!`,
                     scheduleId
                 ]);
+                sendPushNotification(emp.employee_id, {
+                    title: '📅 New Schedule Published',
+                    body: `Your schedule for the week of ${weekStart} has been published.`,
+                    url: '/employee/schedule'
+                });
             }
             console.log(`Notified ${employeesWithShifts.length} employees about published schedule`);
+        }
+
+        // WebSocket Refresh
+        if (published) {
+            broadcastUpdate('data_refresh');
+            broadcastUpdate('notification_refresh');
+        } else {
+            broadcastUpdate('data_refresh');
         }
 
         res.json({ success: true, scheduleId });
@@ -185,7 +200,18 @@ router.post('/:id/publish', async (req, res) => {
                     `Your schedule for the week of ${schedule.week_start} has been published. Check your shifts!`,
                     id
                 ]);
+                sendPushNotification(emp.employee_id, {
+                    title: '📅 New Schedule Published',
+                    body: `Your schedule for the week of ${schedule.week_start} has been published.`,
+                    url: '/employee/schedule'
+                });
             }
+        }
+
+        // WebSocket Refresh
+        broadcastUpdate('data_refresh');
+        if (published) {
+            broadcastUpdate('notification_refresh');
         }
 
         res.json({ success: true });
@@ -215,6 +241,57 @@ router.get('/published-weeks', async (req, res) => {
         res.json({ success: true, weekStarts });
     } catch (error) {
         console.error('Get published weeks error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get upcoming published shifts for an employee
+router.get('/employee/:employeeId/published-shifts', async (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        const { storeId } = req.query;
+
+        if (!storeId) {
+            return res.status(400).json({ success: false, error: 'Store ID is required' });
+        }
+
+        // We want all shifts belonging to published schedules, 
+        // starting from today or the current week, but for simplicity
+        // let's grab all published future/current shifts for this employee.
+
+        // Let's get all published schedules for the store first
+        const publishedSchedules = await query(
+            'SELECT id, week_start FROM schedules WHERE store_id = $1 AND published = 1 ORDER BY week_start DESC',
+            [storeId]
+        );
+
+        if (publishedSchedules.length === 0) {
+            return res.json({ success: true, shifts: [] });
+        }
+
+        const scheduleIds = publishedSchedules.map(s => s.id);
+
+        const employeeShifts = await query(
+            'SELECT * FROM shifts WHERE employee_id = $1 AND schedule_id = ANY($2)',
+            [employeeId, scheduleIds]
+        );
+
+        const result = employeeShifts.map(shift => {
+            const schedule = publishedSchedules.find(s => s.id === shift.schedule_id);
+            return {
+                id: shift.id,
+                scheduleId: shift.schedule_id,
+                weekStart: schedule.week_start,
+                day: shift.day_of_week,
+                start: shift.start_time,
+                end: shift.end_time,
+                role: shift.role
+            };
+        });
+
+        res.json({ success: true, shifts: result });
+    } catch (error) {
+        console.error('Get employee published shifts error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

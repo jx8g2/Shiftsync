@@ -1,25 +1,28 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useStoreFilter } from '../../context/StoreFilterContext';
 import { employeesAPI } from '../../utils/api';
 import Card from '../../components/ui/Card';
 import './EmployeeManagement.css';
 
 function EmployeeManagement() {
     const { user, isAdmin } = useAuth();
+    const { effectiveStoreId } = useStoreFilter();
     const location = useLocation();
 
     // Determine mode based on URL or role
     // If URL contains 'managers', we are in manager management mode
     // Otherwise default to employee management
     const isManagerView = location.pathname.includes('/managers');
+    const basePath = isAdmin ? '/admin' : '/manager';
 
     const pageTitle = isManagerView ? 'Manager Management' : 'Employee Management';
     const pageSubtitle = isManagerView ? 'Create and manage store managers' : 'Manage your team members and their schedules';
     const targetRole = isManagerView ? 'manager' : 'employee';
-    const addLink = isManagerView ? '/manager/managers/new' : '/manager/employees/new';
+    const addLink = isManagerView ? `${basePath}/managers/new` : `${basePath}/employees/new`;
     const addLabel = isManagerView ? 'Add New Manager' : 'Add New Employee';
-    const editLinkBase = isManagerView ? '/manager/managers' : '/manager/employees';
+    const editLinkBase = isManagerView ? `${basePath}/managers` : `${basePath}/employees`;
 
     const [people, setPeople] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -32,7 +35,7 @@ function EmployeeManagement() {
     const fetchData = async () => {
         try {
             setLoading(true);
-            const response = await employeesAPI.getAll();
+            const response = await employeesAPI.getAll(effectiveStoreId || undefined);
             if (response.success) {
                 setPeople(response.employees);
             } else {
@@ -47,7 +50,7 @@ function EmployeeManagement() {
 
     useEffect(() => {
         fetchData();
-    }, [isManagerView]); // Refetch if mode changes
+    }, [isManagerView, effectiveStoreId]); // Refetch if mode or store changes
 
     // Filter people based on search and target role
     const filteredPeople = people.filter(person => {
@@ -107,13 +110,13 @@ function EmployeeManagement() {
             {isAdmin && (
                 <div className="role-tabs">
                     <Link
-                        to="/manager/managers"
+                        to={`${basePath}/managers`}
                         className={`role-tab ${isManagerView ? 'active' : ''}`}
                     >
                         👔 Managers
                     </Link>
                     <Link
-                        to="/manager/employees"
+                        to={`${basePath}/employees`}
                         className={`role-tab ${!isManagerView ? 'active' : ''}`}
                     >
                         👥 Employees

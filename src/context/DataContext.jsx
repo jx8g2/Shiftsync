@@ -1,9 +1,13 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { employeesAPI, schedulesAPI, requestsAPI } from '../utils/api';
+import { employeesAPI, schedulesAPI, requestsAPI, storesAPI } from '../utils/api';
+import { useSocket, useSocketEvent } from './SocketContext';
 import { initialData } from '../data/mockData'; // Fallback for non-DB parts like reminders
 
 const DataContext = createContext(null);
+
+// Background refresh interval (10 seconds)
+const POLL_INTERVAL = 10000;
 
 export function DataProvider({ children }) {
     const { user, logAction } = useAuth();
@@ -22,43 +26,89 @@ export function DataProvider({ children }) {
     const [error, setError] = useState(null);
 
     // Fetch all data from API
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (isSilent = false) => {
         if (!user) return;
 
         try {
-            setLoading(true);
+            if (!isSilent) setLoading(true);
 
-            // 1. Fetch Employees
-            const empRes = await employeesAPI.getAll();
-            const empList = empRes.success ? empRes.employees : [];
+            // Fetch data concurrently, but handle individual errors so one failure doesn't block others
+            const fetchEmployees = async () => {
+                try {
+                    const empRes = await employeesAPI.getAll();
+                    return empRes.success ? empRes.employees : [];
+                } catch (e) {
+                    console.error('Failed to fetch employees:', e);
+                    return null;
+                }
+            };
 
-            // 2. Fetch Requests (System-wide if admin/manager, or filtered? Let's fetch all for store)
-            // If user is manager/admin, fetch for store. If employee, fetch for self?
-            // Actually, for dashboard consistency, manager needs store requests.
-            // Employee needs self requests.
-            // Let's fetch based on role or just all for store if user has a storeId.
+            const fetchRequests = async () => {
+                try {
+                    let reqRes;
+                    if (user.role === 'admin') {
+                        reqRes = await requestsAPI.getAll({});
+                    } else if (user.role === 'manager' && user.storeId) {
+                        reqRes = await requestsAPI.getAll({ storeId: user.storeId });
+                    } else if (user.role === 'employee') {
+                        reqRes = await requestsAPI.getAll({ employeeId: user.id });
+                    }
+                    return (reqRes && reqRes.success) ? reqRes.requests : (reqRes?.requests || []);
+                } catch (e) {
+                    console.error('Failed to fetch requests:', e);
+                    return null;
+                }
+            };
 
-            let reqList = [];
-            if (user.storeId) {
-                const reqRes = await requestsAPI.getAll({ storeId: user.storeId });
-                reqList = reqRes.success ? reqRes.requests : [];
-            } else if (user.role === 'employee') {
-                const reqRes = await requestsAPI.getAll({ employeeId: user.id });
-                reqList = reqRes.success ? reqRes.requests : [];
-            }
+            const fetchStores = async () => {
+                try {
+                    if (user.role === 'admin') {
+                        const storesRes = await storesAPI.getAll();
+                        return storesRes.success ? storesRes.stores : [];
+                    }
+                    return [];
+                } catch (e) {
+                    console.warn('Could not fetch stores:', e);
+                    return [];
+                }
+            };
 
-            // 3. Fetch Schedules (All for store)
-            let schedList = [];
-            if (user.storeId) {
-                const schedRes = await schedulesAPI.get(user.storeId);
-                // schedulesAPI.get returns { schedules: [...] } or { schedule: ... } depending on weekStart
-                // We updated it to return { schedules: [] } if no weekStart
-                schedList = schedRes.success && schedRes.schedules ? schedRes.schedules : [];
-            }
+            const fetchSchedules = async (storesToFetchFor) => {
+                try {
+                    if (user.role === 'admin') {
+                        // For admins, we fetch schedules for all stores
+                        const promises = storesToFetchFor.map(store => schedulesAPI.get(store.id));
+                        const results = await Promise.all(promises);
+                        let allSchedules = [];
+                        results.forEach(res => {
+                            if (res.success && res.schedules) {
+                                allSchedules = [...allSchedules, ...res.schedules];
+                            }
+                        });
+                        return allSchedules;
+                    } else if (user.storeId) {
+                        const schedRes = await schedulesAPI.get(user.storeId);
+                        return schedRes.success && schedRes.schedules ? schedRes.schedules : [];
+                    }
+                    return [];
+                } catch (e) {
+                    console.error('Failed to fetch schedules:', e);
+                    return null;
+                }
+            };
 
-            setEmployees(empList);
-            setRequests(reqList);
-            setSchedules(schedList);
+            const [empList, reqList, storeList] = await Promise.all([
+                fetchEmployees(),
+                fetchRequests(),
+                fetchStores()
+            ]);
+
+            const schedList = await fetchSchedules(storeList || []);
+
+            if (empList !== null) setEmployees(empList);
+            if (reqList !== null) setRequests(reqList);
+            if (storeList !== null) setStores(storeList);
+            if (schedList !== null) setSchedules(schedList);
 
             // Load local storage items
             const savedData = localStorage.getItem('shiftsync_data_local');
@@ -68,18 +118,26 @@ export function DataProvider({ children }) {
                 setShiftRequirements(parsed.shiftRequirements || initialData.shiftRequirements);
             }
 
+            setError(null);
         } catch (err) {
-            console.error('Failed to load data:', err);
-            setError(err.message);
+            console.error('Global data load error:', err);
+            if (!isSilent) setError(err.message);
         } finally {
-            setLoading(false);
+            if (!isSilent) setLoading(false);
         }
     }, [user]);
 
-    // Initial Load
+    // Listen for real-time updates
+    useSocketEvent('data_refresh', () => {
+        console.log('🔄 [Socket] Data refresh received');
+        fetchData(true);
+    });
+
+    // Initial Load - Removed Polling
     useEffect(() => {
         if (user) {
-            fetchData();
+            // Initial fetch
+            fetchData(false);
         } else {
             setLoading(false);
         }
@@ -136,7 +194,7 @@ export function DataProvider({ children }) {
 
     // --- Store Operations ---
     const getStores = () => stores;
-    const getStore = (id) => stores.find(s => s.id === id);
+    const getStore = (id) => stores.find(s => s.id == id);
     const addStore = (store) => { console.warn('addStore not implemented with DB'); };
     const updateStore = (id, updates) => { console.warn('updateStore not implemented with DB'); };
 
@@ -164,11 +222,12 @@ export function DataProvider({ children }) {
     };
 
     const getTimeOffRequestsByStore = (storeId) => {
-        // We already fetched requests likely filtered by store
-        // But if we have all, filter here.
-        // Our 'fetchData' logic sets 'requests' based on user role.
-        // Assuming requests contains what we need.
-        return requests;
+        if (!storeId || storeId === 'all') return requests;
+        // Filter requests to only those from employees belonging to the given store
+        const storeEmployeeIds = employees
+            .filter(e => e.storeId == storeId || e.store_id == storeId)
+            .map(e => e.id);
+        return requests.filter(r => storeEmployeeIds.includes(r.employeeId) || storeEmployeeIds.includes(r.employee_id));
     };
 
     const createTimeOffRequest = async (request) => {
@@ -200,10 +259,24 @@ export function DataProvider({ children }) {
         }
     };
 
+    const cancelTimeOffRequest = async (id) => {
+        try {
+            const res = await requestsAPI.delete(id);
+            if (res.success) {
+                await fetchData();
+                logAction?.('CANCEL_TIME_OFF_REQUEST', `Canceled request ${id}`);
+                return res;
+            }
+        } catch (e) {
+            console.error(e);
+            throw e;
+        }
+    };
+
     // --- Schedule Operations ---
     const getSchedules = (storeId, weekStart) => {
         return schedules.filter(s =>
-            s.storeId === storeId && (weekStart ? s.weekStart === weekStart : true)
+            s.storeId == storeId && (weekStart ? s.weekStart === weekStart : true)
         );
     };
 
@@ -266,22 +339,19 @@ export function DataProvider({ children }) {
     // Logs
     const getLogs = () => JSON.parse(localStorage.getItem('shiftsync_logs') || '[]');
 
-    // Construct data object for compatibility
-    // Some components might access data.employees directly.
-    const dataObject = {
-        employees,
-        schedules,
-        requests,
-        stores,
-        reminders,
-        shiftRequirements,
-        availability: [], // Empty for now
-        timeOffRequests: requests
-    };
-
-    const value = {
+    const value = useMemo(() => ({
         loading,
-        data: dataObject, // Expose data object
+        error,
+        data: {
+            employees,
+            schedules,
+            requests,
+            stores,
+            reminders,
+            shiftRequirements,
+            availability: [],
+            timeOffRequests: requests
+        },
 
         getEmployees,
         getEmployee,
@@ -301,6 +371,7 @@ export function DataProvider({ children }) {
         getTimeOffRequestsByStore,
         createTimeOffRequest,
         updateTimeOffRequest,
+        cancelTimeOffRequest,
 
         getSchedules,
         getEmployeeSchedules,
@@ -316,7 +387,17 @@ export function DataProvider({ children }) {
 
         getLogs,
         refreshData: fetchData
-    };
+    }), [
+        loading, error, employees, schedules, requests, stores, reminders, shiftRequirements,
+        getEmployees, getEmployee, addEmployee, updateEmployee,
+        getStores, getStore,
+        getAvailability, getAllAvailability, setAvailability,
+        getTimeOffRequests, getTimeOffRequestsByStore, createTimeOffRequest, updateTimeOffRequest, cancelTimeOffRequest,
+        getSchedules, getEmployeeSchedules, saveSchedule, publishSchedule,
+        getShiftRequirements, saveShiftRequirements,
+        getReminders, addReminder, dismissReminder,
+        getLogs, fetchData
+    ]);
 
     return (
         <DataContext.Provider value={value}>

@@ -1,75 +1,11 @@
-// Initial data for the scheduling application
-
+// Initial empty data — all real data comes from the database
 export const initialData = {
-    stores: [
-        {
-            id: 'store-001',
-            name: 'Main Location',
-            address: '123 Main Street',
-            city: 'Austin',
-            state: 'TX',
-            zipCode: '78701',
-            phone: '(512) 555-0101',
-            timezone: 'America/Chicago',
-            operatingHours: {
-                monday: { open: '06:00', close: '22:00', closed: false },
-                tuesday: { open: '06:00', close: '22:00', closed: false },
-                wednesday: { open: '06:00', close: '22:00', closed: false },
-                thursday: { open: '06:00', close: '22:00', closed: false },
-                friday: { open: '06:00', close: '23:00', closed: false },
-                saturday: { open: '07:00', close: '23:00', closed: false },
-                sunday: { open: '08:00', close: '20:00', closed: false }
-            },
-            managerId: 'mgr-001',
-            createdAt: new Date().toISOString()
-        }
-    ],
-
-    employees: [
-        {
-            id: 'mgr-001',
-            name: 'Store Manager',
-            email: 'manager@shiftsync.com',
-            phone: '(512) 555-0001',
-            role: 'manager',
-            position: 'Store Manager',
-            storeId: 'store-001',
-            hireDate: '2024-01-01',
-            avatar: 'SM',
-            status: 'active',
-            createdAt: new Date().toISOString()
-        }
-    ],
-
+    stores: [],
+    employees: [],
     availability: [],
-
     timeOffRequests: [],
-
     schedules: [],
-
-    shiftRequirements: [
-        {
-            id: 'req-001',
-            storeId: 'store-001',
-            day: 'monday',
-            timeSlot: 'morning',
-            startTime: '06:00',
-            endTime: '14:00',
-            minEmployees: 2,
-            preferredEmployees: 3
-        },
-        {
-            id: 'req-002',
-            storeId: 'store-001',
-            day: 'monday',
-            timeSlot: 'afternoon',
-            startTime: '14:00',
-            endTime: '22:00',
-            minEmployees: 2,
-            preferredEmployees: 3
-        }
-    ],
-
+    shiftRequirements: [],
     reminders: []
 };
 
@@ -118,25 +54,33 @@ export const formatTime = (time) => {
 
 export const formatDate = (dateStr) => {
     if (!dateStr) return '';
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const date = new Date(y, m - 1, d);
-    return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric'
-    });
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric'
+        });
+    } catch (e) {
+        return 'Invalid Date';
+    }
 };
 
 export const formatDateFull = (dateStr) => {
     if (!dateStr) return '';
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const date = new Date(y, m - 1, d);
-    return date.toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric'
-    });
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+        });
+    } catch (e) {
+        return 'Invalid Date';
+    }
 };
 
 export const getWeekStart = (date = new Date()) => {

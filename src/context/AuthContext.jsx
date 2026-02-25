@@ -25,13 +25,23 @@ export function AuthProvider({ children }) {
                         removeToken();
                     }
                 } catch (e) {
-                    // API unavailable, use cached user
-                    console.warn('API unavailable, using cached user data');
-                    try {
-                        setUser(JSON.parse(savedUser));
-                    } catch {
+                    console.error('Auth initialization error:', e);
+
+                    // Check if error is authentication related (401 Unauthorized or 403 Forbidden)
+                    if (e.status === 401 || e.status === 403) {
+                        console.warn('Session expired or invalid, logging out');
                         localStorage.removeItem('shiftsync_user');
                         removeToken();
+                        setUser(null);
+                    } else {
+                        // API unavailable (network error), use cached user for offline support
+                        console.warn('API unavailable, using cached user data');
+                        try {
+                            setUser(JSON.parse(savedUser));
+                        } catch {
+                            localStorage.removeItem('shiftsync_user');
+                            removeToken();
+                        }
                     }
                 }
             }

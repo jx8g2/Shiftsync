@@ -164,9 +164,18 @@
 @media (max-width: 768px) {
     .sidebar {
         transform: translateX(-100%);
+        width: 280px;
+        /* Ensure fixed width on mobile */
+        box-shadow: none;
     }
 
     .sidebar.open {
         transform: translateX(0);
+        box-shadow: 4px 0 25px rgba(0, 0, 0, 0.5);
     }
+}
+
+/* Ensure sidebar is above everything */
+.sidebar {
+    z-index: 1000;
 }

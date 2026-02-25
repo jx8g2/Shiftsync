@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
+import { useStoreFilter } from '../../context/StoreFilterContext';
 import { employeesAPI } from '../../utils/api';
 import { DAYS_OF_WEEK, DAY_LABELS, ROLES, getWeekStart, addDays, formatDate } from '../../data/mockData';
 import Card from '../../components/ui/Card';
@@ -9,6 +10,7 @@ import './ScheduleBuilder.css';
 function ScheduleBuilder() {
     const { user } = useAuth();
     const { saveSchedule, getSchedules } = useData();
+    const { effectiveStoreId, isAllStores } = useStoreFilter();
 
     const [weekStart, setWeekStart] = useState(getWeekStart(new Date()));
     const [shifts, setShifts] = useState([]);
@@ -23,7 +25,8 @@ function ScheduleBuilder() {
     // Load existing schedule when weekStart changes
     useEffect(() => {
         const loadSchedule = () => {
-            const savedSchedules = getSchedules(user.storeId, weekStart);
+            if (!effectiveStoreId) return;
+            const savedSchedules = getSchedules(effectiveStoreId, weekStart);
             if (savedSchedules && savedSchedules.length > 0) {
                 // Found a saved schedule for this week
                 setShifts(savedSchedules[0].shifts);
@@ -35,15 +38,16 @@ function ScheduleBuilder() {
             }
         };
         loadSchedule();
-    }, [weekStart, user.storeId, getSchedules]);
+    }, [weekStart, effectiveStoreId, getSchedules]);
 
     useEffect(() => {
         fetchEmployees();
-    }, []);
+    }, [effectiveStoreId]);
 
     const fetchEmployees = async () => {
+        if (!effectiveStoreId) return;
         try {
-            const response = await employeesAPI.getAll();
+            const response = await employeesAPI.getAll(effectiveStoreId);
             if (response.success) {
                 // Get both employees and managers
                 const employeeList = response.employees.filter(e => e.role === 'employee' || e.role === 'manager');
@@ -72,7 +76,7 @@ function ScheduleBuilder() {
         // Only autofill if we have no shifts AND we confirm there's no saved schedule
         // Use filteredEmployees to ensure we don't autofill inactive employees for new schedules
         if (filteredEmployees.length > 0 && shifts.length === 0) {
-            const savedSchedules = getSchedules(user.storeId, weekStart);
+            const savedSchedules = getSchedules(effectiveStoreId, weekStart);
             if (!savedSchedules || savedSchedules.length === 0) {
                 autoFillFromDefaults();
             }
@@ -166,7 +170,7 @@ function ScheduleBuilder() {
         setSaving(true);
         try {
             const scheduleData = {
-                storeId: user.storeId,
+                storeId: effectiveStoreId,
                 weekStart: weekStart,
                 shifts: shifts,
                 published: false // Saving doesn't publish
@@ -187,7 +191,7 @@ function ScheduleBuilder() {
         setSaving(true);
         try {
             const scheduleData = {
-                storeId: user.storeId,
+                storeId: effectiveStoreId,
                 weekStart: weekStart,
                 shifts: shifts,
                 published: true
@@ -254,6 +258,18 @@ function ScheduleBuilder() {
     for (let h = 0; h < 24; h++) {
         timeOptions.push(`${h.toString().padStart(2, '0')}:00`);
         timeOptions.push(`${h.toString().padStart(2, '0')}:30`);
+    }
+
+    if (isAllStores) {
+        return (
+            <div className="page-container animate-fade-in">
+                <div className="empty-state">
+                    <div className="empty-state-icon">🏪</div>
+                    <h3 className="empty-state-title">Select a Store</h3>
+                    <p>Please select a specific store from the header filter to build schedules.</p>
+                </div>
+            </div>
+        );
     }
 
     if (loading) {

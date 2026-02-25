@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
+import { useStoreFilter } from '../../context/StoreFilterContext';
 import { formatDate, TIME_OFF_TYPES } from '../../data/mockData';
 import { requestsAPI } from '../../utils/api';
 import Card from '../../components/ui/Card';
@@ -10,9 +11,10 @@ import './RequestApprovals.css';
 function RequestApprovals() {
     const { user } = useAuth();
     const { getTimeOffRequestsByStore, getEmployees, updateTimeOffRequest } = useData();
+    const { effectiveStoreId, isAllStores } = useStoreFilter();
 
-    const requests = getTimeOffRequestsByStore(user.storeId);
-    const employees = getEmployees(user.storeId);
+    const requests = getTimeOffRequestsByStore(effectiveStoreId);
+    const employees = getEmployees(effectiveStoreId);
 
     const [selectedRequest, setSelectedRequest] = useState(null);
     const [filterStatus, setFilterStatus] = useState('pending');
@@ -23,9 +25,8 @@ function RequestApprovals() {
     // Replacement workflow state
     const [eligibleReplacements, setEligibleReplacements] = useState([]);
     const [selectedReplacement, setSelectedReplacement] = useState(null);
-    const [showReplacementPanel, setShowReplacementPanel] = useState(false);
-    const [notifyingReplacements, setNotifyingReplacements] = useState(false);
-    const [assigningReplacement, setAssigningReplacement] = useState(false);
+    const [approvalStep, setApprovalStep] = useState('review');
+    const [approvalAction, setApprovalAction] = useState('empty');
 
     const filteredRequests = filterStatus === 'all'
         ? requests
@@ -37,15 +38,24 @@ function RequestApprovals() {
         return TIME_OFF_TYPES.find(t => t.value === type)?.label || type;
     };
 
-    // Load eligible replacements when viewing an approved request
+    // Load eligible replacements when editing/pending a request
     useEffect(() => {
-        if (selectedRequest?.status === 'approved') {
+        if (selectedRequest && (selectedRequest.status === 'pending' || isEditing) && selectedRequest.shiftId) {
             loadEligibleReplacements(selectedRequest.id);
         } else {
             setEligibleReplacements([]);
-            setShowReplacementPanel(false);
+            setApprovalStep('review');
         }
-    }, [selectedRequest]);
+    }, [selectedRequest, isEditing]);
+
+    const formatTime = (time) => {
+        if (!time) return '';
+        const [h, m] = time.split(':');
+        const hour = parseInt(h);
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const hour12 = hour % 12 || 12;
+        return `${hour12}:${m} ${ampm}`;
+    };
 
     const loadEligibleReplacements = async (requestId) => {
         try {
@@ -58,48 +68,12 @@ function RequestApprovals() {
         }
     };
 
-    const handleNotifyReplacements = async () => {
-        if (!selectedRequest) return;
-        setNotifyingReplacements(true);
-        try {
-            const response = await requestsAPI.notifyReplacements(selectedRequest.id);
-            if (response.success) {
-                if (response.notifiedCount === 0) {
-                    alert('No eligible employees found to notify. No other employees have the same position as the requesting employee.');
-                } else {
-                    alert(`Notified ${response.notifiedCount} eligible employees about the shift availability.`);
-                }
-            } else {
-                alert(response.error || 'Failed to send notifications.');
-            }
-        } catch (error) {
-            console.error('Failed to notify replacements:', error);
-            const errorMessage = error.message || error.error || 'Failed to send notifications. Please try again.';
-            alert(errorMessage);
-        } finally {
-            setNotifyingReplacements(false);
-        }
-    };
-
-    const handleAssignReplacement = async () => {
-        if (!selectedRequest || !selectedReplacement) return;
-        setAssigningReplacement(true);
-        try {
-            const response = await requestsAPI.assignReplacement(selectedRequest.id, selectedReplacement);
-            if (response.success) {
-                alert(response.message);
-                setShowReplacementPanel(false);
-                setSelectedReplacement(null);
-            }
-        } catch (error) {
-            console.error('Failed to assign replacement:', error);
-            alert('Failed to assign replacement. Please try again.');
-        } finally {
-            setAssigningReplacement(false);
-        }
-    };
-
     const handleAction = async (action) => {
+        if (action === 'approved' && selectedRequest.shiftId && approvalStep === 'review') {
+            setApprovalStep('options');
+            return;
+        }
+
         setProcessing(true);
 
         try {
@@ -107,11 +81,16 @@ function RequestApprovals() {
                 status: action,
                 reviewedBy: user.id,
                 reviewNote: reviewNote || undefined,
-                reviewedAt: new Date().toISOString()
+                reviewedAt: new Date().toISOString(),
+                approvalAction: action === 'approved' ? approvalAction : undefined,
+                replacementId: action === 'approved' && approvalAction === 'replace' ? selectedReplacement : undefined
             });
 
             setSelectedRequest(null);
             setReviewNote('');
+            setApprovalStep('review');
+            setApprovalAction('empty');
+            setSelectedReplacement(null);
         } catch (error) {
             console.error("Failed to update request:", error);
             alert("Failed to update status. Please try again.");
@@ -121,6 +100,18 @@ function RequestApprovals() {
     };
 
     const pendingCount = requests.filter(r => r.status === 'pending').length;
+
+    if (isAllStores) {
+        return (
+            <div className="page-container animate-fade-in">
+                <div className="empty-state">
+                    <div className="empty-state-icon">🏪</div>
+                    <h3 className="empty-state-title">Select a Store</h3>
+                    <p>Please select a specific store from the header filter to view requests.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="page-container animate-fade-in">
@@ -226,6 +217,11 @@ function RequestApprovals() {
                                                         }`}>
                                                         {request.status}
                                                     </span>
+                                                    {request.replacementName && (
+                                                        <div style={{ fontSize: '0.85em', marginTop: '4px', color: 'var(--success-color)' }}>
+                                                            <span style={{ opacity: 0.7 }}>↳</span> {request.replacementName}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td data-label="Actions">
                                                     <button
@@ -282,6 +278,14 @@ function RequestApprovals() {
                                     )}
                                 </span>
                             </div>
+                            {selectedRequest.shiftId && (
+                                <div className="review-detail-row">
+                                    <span className="detail-label">Shift</span>
+                                    <span>
+                                        {selectedRequest.shiftRole} • {formatTime(selectedRequest.shiftStart)} - {formatTime(selectedRequest.shiftEnd)}
+                                    </span>
+                                </div>
+                            )}
                             <div className="review-detail-row">
                                 <span className="detail-label">Reason</span>
                                 <span>{selectedRequest.reason}</span>
@@ -293,42 +297,106 @@ function RequestApprovals() {
                         </div>
 
                         {(isEditing || selectedRequest.status === 'pending') ? (
-                            <>
-                                <div className="form-group">
-                                    <label className="form-label">Note (Optional)</label>
-                                    <textarea
-                                        className="form-textarea"
-                                        placeholder="Add a note for the employee..."
-                                        value={reviewNote}
-                                        onChange={(e) => setReviewNote(e.target.value)}
-                                    />
-                                </div>
+                            approvalStep === 'options' ? (
+                                <div className="approval-options-panel p-md border rounded mb-md mt-md">
+                                    <h4 className="mb-sm">Approve Request</h4>
+                                    <p className="text-muted mb-md">This will remove {getEmployee(selectedRequest.employeeId)?.name} from their scheduled shift.</p>
 
-                                <div className="modal-footer">
-                                    {selectedRequest.status !== 'pending' && (
-                                        <button
-                                            className="btn btn-secondary mr-auto"
-                                            onClick={() => setIsEditing(false)}
-                                        >
-                                            Cancel
-                                        </button>
+                                    <div className="form-group">
+                                        <label className="radio-label block mb-sm">
+                                            <input
+                                                type="radio"
+                                                name="approvalAction"
+                                                value="empty"
+                                                checked={approvalAction === 'empty'}
+                                                onChange={() => setApprovalAction('empty')}
+                                            />
+                                            <span className="ml-sm">Keep shift empty (delete shift)</span>
+                                        </label>
+                                        <label className="radio-label block mb-md">
+                                            <input
+                                                type="radio"
+                                                name="approvalAction"
+                                                value="replace"
+                                                checked={approvalAction === 'replace'}
+                                                onChange={() => setApprovalAction('replace')}
+                                            />
+                                            <span className="ml-sm">Replace shift (reassign to someone else)</span>
+                                        </label>
+                                    </div>
+
+                                    {approvalAction === 'replace' && (
+                                        <div className="form-group mt-md">
+                                            <label className="form-label">Select Replacement</label>
+                                            <select
+                                                className="form-select"
+                                                value={selectedReplacement || ''}
+                                                onChange={(e) => setSelectedReplacement(e.target.value ? Number(e.target.value) : null)}
+                                            >
+                                                <option value="">-- Choose an employee --</option>
+                                                {eligibleReplacements.map(emp => (
+                                                    <option key={emp.id} value={emp.id}>
+                                                        {emp.name} ({Math.round((emp.scheduledHours || 0) * 10) / 10} hrs scheduled this week)
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {eligibleReplacements.length === 0 && (
+                                                <p className="text-muted mt-sm">No eligible replacements found.</p>
+                                            )}
+                                        </div>
                                     )}
-                                    <button
-                                        className="btn btn-danger"
-                                        onClick={() => handleAction('denied')}
-                                        disabled={processing}
-                                    >
-                                        {selectedRequest.status === 'denied' ? 'Keep Denied' : 'Deny'}
-                                    </button>
-                                    <button
-                                        className="btn btn-success"
-                                        onClick={() => handleAction('approved')}
-                                        disabled={processing}
-                                    >
-                                        {selectedRequest.status === 'approved' ? 'Keep Approved' : 'Approve'}
-                                    </button>
+
+                                    <div className="modal-footer mt-lg">
+                                        <button className="btn btn-secondary mr-auto" onClick={() => setApprovalStep('review')}>
+                                            Back
+                                        </button>
+                                        <button
+                                            className="btn btn-success"
+                                            onClick={() => handleAction('approved')}
+                                            disabled={processing || (approvalAction === 'replace' && !selectedReplacement)}
+                                        >
+                                            {processing ? 'Processing...' : 'Confirm Approval'}
+                                        </button>
+                                    </div>
                                 </div>
-                            </>
+                            ) : (
+                                <>
+                                    <div className="form-group mt-md">
+                                        <label className="form-label">Note (Optional)</label>
+                                        <textarea
+                                            className="form-textarea"
+                                            placeholder="Add a note for the employee..."
+                                            value={reviewNote}
+                                            onChange={(e) => setReviewNote(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className="modal-footer">
+                                        {selectedRequest.status !== 'pending' && (
+                                            <button
+                                                className="btn btn-secondary mr-auto"
+                                                onClick={() => setIsEditing(false)}
+                                            >
+                                                Cancel
+                                            </button>
+                                        )}
+                                        <button
+                                            className="btn btn-danger"
+                                            onClick={() => handleAction('denied')}
+                                            disabled={processing}
+                                        >
+                                            {selectedRequest.status === 'denied' ? 'Keep Denied' : 'Deny'}
+                                        </button>
+                                        <button
+                                            className="btn btn-success"
+                                            onClick={() => handleAction('approved')}
+                                            disabled={processing}
+                                        >
+                                            {selectedRequest.status === 'approved' ? 'Keep Approved' : 'Approve'}
+                                        </button>
+                                    </div>
+                                </>
+                            )
                         ) : (
                             <div className="review-result">
                                 <div className="review-detail-row">
@@ -348,68 +416,10 @@ function RequestApprovals() {
                                     <span className="detail-label">Reviewed On</span>
                                     <span>{formatDate(selectedRequest.reviewedAt)}</span>
                                 </div>
-
-                                {/* Replacement Workflow - Only for approved requests */}
-                                {selectedRequest.status === 'approved' && (
-                                    <div className="replacement-section">
-                                        <h4 className="replacement-header">📋 Shift Replacement</h4>
-
-                                        {!showReplacementPanel ? (
-                                            <div className="replacement-actions">
-                                                <button
-                                                    className="btn btn-secondary"
-                                                    onClick={handleNotifyReplacements}
-                                                    disabled={notifyingReplacements}
-                                                >
-                                                    {notifyingReplacements ? 'Notifying...' : '📢 Notify Eligible Employees'}
-                                                </button>
-                                                <button
-                                                    className="btn btn-primary"
-                                                    onClick={() => setShowReplacementPanel(true)}
-                                                >
-                                                    👤 Assign Replacement
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <div className="replacement-panel">
-                                                <div className="form-group">
-                                                    <label className="form-label">Select Replacement Employee</label>
-                                                    <select
-                                                        className="form-select"
-                                                        value={selectedReplacement || ''}
-                                                        onChange={(e) => setSelectedReplacement(e.target.value ? Number(e.target.value) : null)}
-                                                    >
-                                                        <option value="">-- Choose an employee --</option>
-                                                        {eligibleReplacements.map(emp => (
-                                                            <option key={emp.id} value={emp.id}>
-                                                                {emp.name} ({emp.position})
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                                {eligibleReplacements.length === 0 && (
-                                                    <p className="text-muted">No eligible employees found with matching position.</p>
-                                                )}
-                                                <div className="replacement-actions">
-                                                    <button
-                                                        className="btn btn-secondary"
-                                                        onClick={() => {
-                                                            setShowReplacementPanel(false);
-                                                            setSelectedReplacement(null);
-                                                        }}
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                    <button
-                                                        className="btn btn-success"
-                                                        onClick={handleAssignReplacement}
-                                                        disabled={!selectedReplacement || assigningReplacement}
-                                                    >
-                                                        {assigningReplacement ? 'Assigning...' : 'Confirm Assignment'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
+                                {selectedRequest.replacementName && (
+                                    <div className="review-detail-row" style={{ borderLeft: '3px solid var(--success-color)', paddingLeft: 'var(--spacing-md)', background: 'rgba(var(--success-rgb), 0.05)', marginTop: 'var(--spacing-md)' }}>
+                                        <span className="detail-label">Reassigned To</span>
+                                        <span className="text-success fw-bold">{selectedRequest.replacementName}</span>
                                     </div>
                                 )}
 

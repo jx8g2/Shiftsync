@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
+import { useStoreFilter } from '../../context/StoreFilterContext';
 import { getWeekStart, addDays, formatDate, DAYS_OF_WEEK } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './LaborReports.css';
@@ -8,12 +9,13 @@ import './LaborReports.css';
 function LaborReports() {
     const { user } = useAuth();
     const { getEmployees, getSchedules, getStore } = useData();
+    const { effectiveStoreId, isAllStores } = useStoreFilter();
 
     const [weekStart, setWeekStart] = useState(getWeekStart(new Date()));
 
-    const store = getStore(user.storeId);
-    const employees = getEmployees(user.storeId).filter(e => e.role === 'employee');
-    const schedules = getSchedules(user.storeId, weekStart);
+    const store = getStore(effectiveStoreId);
+    const employees = getEmployees(effectiveStoreId).filter(e => e.role === 'employee');
+    const schedules = getSchedules(effectiveStoreId, weekStart);
     const currentSchedule = schedules[0];
 
     const handlePrevWeek = () => setWeekStart(addDays(weekStart, -7));
@@ -57,6 +59,18 @@ function LaborReports() {
             hours
         };
     });
+
+    if (isAllStores) {
+        return (
+            <div className="page-container animate-fade-in">
+                <div className="empty-state">
+                    <div className="empty-state-icon">🏪</div>
+                    <h3 className="empty-state-title">Select a Store</h3>
+                    <p>Please select a specific store from the header filter to view reports.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="page-container animate-fade-in">

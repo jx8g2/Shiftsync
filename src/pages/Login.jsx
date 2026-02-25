@@ -20,8 +20,14 @@ function Login() {
         const result = await login(email, password);
 
         if (result.success) {
-            const redirectPath = result.user.role === 'manager' ? '/manager' : '/employee';
-            navigate(redirectPath);
+            // Redirect based on role
+            if (result.user.role === 'admin') {
+                navigate('/admin');
+            } else if (result.user.role === 'manager') {
+                navigate('/manager');
+            } else {
+                navigate('/employee');
+            }
         } else {
             setError(result.error);
         }

@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider } from './context/NotificationContext';
+import { StoreFilterProvider } from './context/StoreFilterContext';
+import { SocketProvider } from './context/SocketContext';
 
 // Clear old incompatible data on first load
 const DATA_VERSION = 'v3';
@@ -38,7 +40,11 @@ import EmployeeManagement from './pages/manager/EmployeeManagement';
 import EmployeeForm from './pages/manager/EmployeeForm';
 
 // Admin Pages
+import AdminDashboard from './pages/admin/AdminDashboard';
+import StoreManagement from './pages/admin/StoreManagement';
+import StoreForm from './pages/admin/StoreForm';
 import ManagerForm from './pages/admin/ManagerForm';
+import BackupSettings from './pages/admin/BackupSettings';
 
 // Shared Pages
 import Chat from './pages/Chat';
@@ -53,7 +59,7 @@ function ProtectedRoute({ children, allowedRoles }) {
 
     const roleCheck = {
         employee: isEmployee || isManager || isAdmin,
-        manager: isManager || isAdmin,
+        manager: isManager,
         admin: isAdmin
     };
 
@@ -61,7 +67,7 @@ function ProtectedRoute({ children, allowedRoles }) {
 
     if (!hasAccess) {
         // Redirect to appropriate dashboard based on role
-        if (isAdmin) return <Navigate to="/manager" replace />;
+        if (isAdmin) return <Navigate to="/admin" replace />;
         if (isManager) return <Navigate to="/manager" replace />;
         return <Navigate to="/employee" replace />;
     }
@@ -74,8 +80,8 @@ function RootRedirect() {
     const { user, isManager, isAdmin } = useAuth();
 
     if (!user) return <Navigate to="/login" replace />;
-    // Both admin and manager now go to the unified manager dashboard
-    if (isAdmin || isManager) return <Navigate to="/manager" replace />;
+    if (isAdmin) return <Navigate to="/admin" replace />;
+    if (isManager) return <Navigate to="/manager" replace />;
     return <Navigate to="/employee" replace />;
 }
 
@@ -112,7 +118,7 @@ function AppRoutes() {
             <Route
                 path="/employee"
                 element={
-                    <ProtectedRoute allowedRoles={['employee']}>
+                    <ProtectedRoute allowedRoles={['employee', 'manager', 'admin']}>
                         <Layout />
                     </ProtectedRoute>
                 }
@@ -124,7 +130,7 @@ function AppRoutes() {
                 <Route path="chat" element={<Chat />} />
             </Route>
 
-            {/* Manager Routes (Accessed by Manager & Admin) */}
+            {/* Manager Routes (Manager only - not admin) */}
             <Route
                 path="/manager"
                 element={
@@ -141,21 +147,45 @@ function AppRoutes() {
                 <Route path="schedule-builder" element={<ScheduleBuilder />} />
                 <Route path="store-hours" element={<StoreHours />} />
                 <Route path="reports" element={<LaborReports />} />
+                <Route path="chat" element={<Chat />} />
+            </Route>
 
-                {/* Admin-only routes nested under manager */}
+            {/* Admin Routes (Admin only) */}
+            <Route
+                path="/admin"
+                element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                        <Layout />
+                    </ProtectedRoute>
+                }
+            >
+                <Route index element={<AdminDashboard />} />
+
+                {/* Store Management */}
+                <Route path="stores" element={<StoreManagement />} />
+                <Route path="stores/new" element={<StoreForm />} />
+                <Route path="stores/:id/edit" element={<StoreForm />} />
+
+                {/* Manager Management */}
                 <Route path="managers" element={<EmployeeManagement />} />
                 <Route path="managers/new" element={<ManagerForm />} />
                 <Route path="managers/:id/edit" element={<ManagerForm />} />
 
-                {/* Shared routes */}
+                {/* All the same features as manager, but for admin */}
+                <Route path="employees" element={<EmployeeManagement />} />
+                <Route path="employees/new" element={<EmployeeForm />} />
+                <Route path="employees/:id/edit" element={<EmployeeForm />} />
+                <Route path="requests" element={<RequestApprovals />} />
+                <Route path="schedule-builder" element={<ScheduleBuilder />} />
+                <Route path="store-hours" element={<StoreHours />} />
+                <Route path="reports" element={<LaborReports />} />
+
+                {/* Admin Settings */}
+                <Route path="settings" element={<BackupSettings />} />
+
+                {/* Chat */}
                 <Route path="chat" element={<Chat />} />
             </Route>
-
-            {/* Admin specific override - redirect to manager dashboard */}
-            <Route
-                path="/admin"
-                element={<Navigate to="/manager" replace />}
-            />
 
             {/* 404 Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -168,11 +198,15 @@ function App() {
         <BrowserRouter>
             <ThemeProvider>
                 <AuthProvider>
-                    <NotificationProvider>
-                        <DataProvider>
-                            <AppRoutes />
-                        </DataProvider>
-                    </NotificationProvider>
+                    <SocketProvider>
+                        <NotificationProvider>
+                            <DataProvider>
+                                <StoreFilterProvider>
+                                    <AppRoutes />
+                                </StoreFilterProvider>
+                            </DataProvider>
+                        </NotificationProvider>
+                    </SocketProvider>
                 </AuthProvider>
             </ThemeProvider>
         </BrowserRouter>

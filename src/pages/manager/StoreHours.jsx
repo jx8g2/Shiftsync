@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
+import { useStoreFilter } from '../../context/StoreFilterContext';
 import { DAYS_OF_WEEK, DAY_LABELS } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './StoreHours.css';
@@ -8,8 +9,9 @@ import './StoreHours.css';
 function StoreHours() {
     const { user } = useAuth();
     const { getStore, updateStore } = useData();
+    const { effectiveStoreId, isAllStores } = useStoreFilter();
 
-    const store = getStore(user.storeId);
+    const store = getStore(effectiveStoreId);
     const [hours, setHours] = useState(store?.operatingHours || {});
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState(null);
@@ -32,7 +34,7 @@ function StoreHours() {
         setSaving(true);
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        updateStore(user.storeId, { operatingHours: hours });
+        updateStore(effectiveStoreId, { operatingHours: hours });
 
         setMessage({ type: 'success', text: 'Store hours updated successfully!' });
         setSaving(false);
@@ -53,6 +55,18 @@ function StoreHours() {
         const hour12 = hour % 12 || 12;
         return `${hour12}:${m} ${ampm}`;
     };
+
+    if (isAllStores) {
+        return (
+            <div className="page-container animate-fade-in">
+                <div className="empty-state">
+                    <div className="empty-state-icon">🏪</div>
+                    <h3 className="empty-state-title">Select a Store</h3>
+                    <p>Please select a specific store from the header filter to configure store hours.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="page-container animate-fade-in">

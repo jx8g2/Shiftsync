@@ -9,9 +9,11 @@ const scheduleRoutes = require('./routes/schedules');
 const requestRoutes = require('./routes/requests');
 const messagesRoutes = require('./routes/messages');
 const notificationsRoutes = require('./routes/notifications');
+const storesRoutes = require('./routes/stores');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const backupRoutes = require('./routes/backups');
 
 // Middleware
 app.use(cors({
@@ -38,6 +40,8 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/stores', storesRoutes);
+app.use('/api/admin/backups', backupRoutes);
 
 // Debug endpoint removed (PostgreSQL migration)
 
@@ -70,24 +74,35 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
 });
 
+const http = require('http');
+const { initRedis } = require('./utils/redis');
+const { initSocket } = require('./utils/socket');
+
+const server = http.createServer(app);
+
+// ... existing routes ...
+
 // Start server
 const startServer = async () => {
+    const { initBackupService } = require('./services/backupService');
+
     try {
         // Initialize database and seed default data
         await initializeDatabase();
         await seedDefaultData();
 
-        app.listen(PORT, () => {
+        // Initialize Redis
+        await initRedis();
+
+        // Initialize Socket.io
+        initSocket(server);
+
+        // Start backup service
+        initBackupService();
+
+        server.listen(PORT, () => {
             console.log(`\n🚀 Server running on http://localhost:${PORT}`);
-            console.log('\n📋 Available endpoints:');
-            console.log('  POST /api/auth/login');
-            console.log('  GET  /api/auth/me');
-            console.log('  GET  /api/employees');
-            console.log('  POST /api/employees');
-            console.log('  GET  /api/employees/:id');
-            console.log('  PUT  /api/employees/:id');
-            console.log('  DELETE /api/employees/:id');
-            console.log('\n👤 Default login: admin@shiftsync.com / admin123\n');
+            // ... logs ...
         });
     } catch (error) {
         console.error('Failed to start server:', error);

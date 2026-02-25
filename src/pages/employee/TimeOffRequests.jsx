@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { TIME_OFF_TYPES, formatDate, formatDateFull, addDays } from '../../data/mockData';
+import { TIME_OFF_TYPES, formatDate, formatDateFull, addDays, DAYS_OF_WEEK } from '../../data/mockData';
 import { schedulesAPI } from '../../utils/api';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -9,62 +9,42 @@ import './TimeOffRequests.css';
 
 function TimeOffRequests() {
     const { user } = useAuth();
-    const { getTimeOffRequests, createTimeOffRequest } = useData();
+    const { getTimeOffRequests, createTimeOffRequest, cancelTimeOffRequest } = useData();
 
     const requests = getTimeOffRequests(user.id);
     const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({
-        startDate: '',
-        endDate: '',
+        shiftId: '',
         type: 'personal',
         reason: ''
     });
     const [submitting, setSubmitting] = useState(false);
-    const [publishedWeeks, setPublishedWeeks] = useState([]);
-    const [dateWarning, setDateWarning] = useState('');
+    const [publishedShifts, setPublishedShifts] = useState([]);
 
     useEffect(() => {
-        // Load published weeks for validation
-        const loadPublishedWeeks = async () => {
+        // Load published shifts for the current logged in employee
+        const loadPublishedShifts = async () => {
             try {
-                const response = await schedulesAPI.getPublishedWeeks('store-001');
+                // Determine user's store ID
+                const storeId = user.storeId || 'store-001';
+                const response = await schedulesAPI.getEmployeePublishedShifts(storeId, user.id);
                 if (response.success) {
-                    setPublishedWeeks(response.weekStarts);
+                    const sortedShifts = (response.shifts || []).sort((a, b) => {
+                        const dateA = addDays(a.weekStart, DAYS_OF_WEEK.indexOf(a.day));
+                        const dateB = addDays(b.weekStart, DAYS_OF_WEEK.indexOf(b.day));
+                        if (dateA === dateB) {
+                            return a.start.localeCompare(b.start);
+                        }
+                        return new Date(dateA) - new Date(dateB);
+                    });
+                    setPublishedShifts(sortedShifts);
                 }
             } catch (error) {
-                console.error('Failed to load published weeks:', error);
+                console.error('Failed to load published shifts for time off:', error);
             }
         };
-        loadPublishedWeeks();
-    }, []);
-
-    // Validate if date falls within any published week
-    const isDateInPublishedSchedule = (dateStr) => {
-        if (!dateStr || publishedWeeks.length === 0) return true; // No validation if no published weeks
-
-        return publishedWeeks.some(weekStart => {
-            const start = new Date(weekStart);
-            const end = new Date(addDays(weekStart, 6));
-            const checkDate = new Date(dateStr);
-            return checkDate >= start && checkDate <= end;
-        });
-    };
-
-    // Check dates when they change
-    useEffect(() => {
-        if (formData.startDate && formData.endDate && publishedWeeks.length > 0) {
-            const startValid = isDateInPublishedSchedule(formData.startDate);
-            const endValid = isDateInPublishedSchedule(formData.endDate);
-
-            if (!startValid || !endValid) {
-                setDateWarning('⚠️ Selected dates are not within a published schedule. Your manager may not be able to see your scheduled shifts for this period.');
-            } else {
-                setDateWarning('');
-            }
-        } else {
-            setDateWarning('');
-        }
-    }, [formData.startDate, formData.endDate, publishedWeeks]);
+        loadPublishedShifts();
+    }, [user.id, user.storeId]);
 
     const pendingRequests = requests.filter(r => r.status === 'pending');
     const pastRequests = requests.filter(r => r.status !== 'pending');
@@ -73,17 +53,43 @@ function TimeOffRequests() {
         e.preventDefault();
         setSubmitting(true);
 
-        await new Promise(resolve => setTimeout(resolve, 500));
+        const selectedShift = publishedShifts.find(s => s.id === parseInt(formData.shiftId));
+        if (!selectedShift) {
+            alert('Please select a valid scheduled shift');
+            setSubmitting(false);
+            return;
+        }
 
-        createTimeOffRequest({
-            employeeId: user.id,
-            ...formData
-        });
+        const dateStr = addDays(selectedShift.weekStart, DAYS_OF_WEEK.indexOf(selectedShift.day));
 
-        setFormData({ startDate: '', endDate: '', type: 'personal', reason: '' });
-        setShowModal(false);
-        setSubmitting(false);
-        setDateWarning('');
+        try {
+            await createTimeOffRequest({
+                employeeId: user.id,
+                startDate: dateStr,
+                endDate: dateStr,
+                shiftId: selectedShift.id,
+                type: formData.type,
+                reason: formData.reason
+            });
+            setFormData({ shiftId: '', type: 'personal', reason: '' });
+            setShowModal(false);
+        } catch (error) {
+            console.error('Failed to submit request:', error);
+            alert('Failed to submit request. Please try again.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleCancel = async (id) => {
+        if (!window.confirm('Are you sure you want to cancel this request?')) return;
+
+        try {
+            await cancelTimeOffRequest(id);
+        } catch (error) {
+            console.error('Failed to cancel request:', error);
+            alert('Failed to cancel request. Please try again.');
+        }
     };
 
     const getStatusBadge = (status) => {
@@ -159,10 +165,16 @@ function TimeOffRequests() {
                                         </span>
                                     </div>
                                     <p className="request-card-reason">{request.reason}</p>
-                                    <div className="request-card-footer">
+                                    <div className="request-card-footer flex justify-between items-center">
                                         <span className="request-submitted">
                                             Submitted {formatDate(request.createdAt)}
                                         </span>
+                                        <button
+                                            className="btn btn-sm btn-outline-danger"
+                                            onClick={() => handleCancel(request.id)}
+                                        >
+                                            Cancel
+                                        </button>
                                     </div>
                                 </div>
                             ))}
@@ -203,6 +215,12 @@ function TimeOffRequests() {
                                             <span>{request.reviewNote}</span>
                                         </div>
                                     )}
+                                    {request.replacementName && (
+                                        <div className="request-card-note mt-sm" style={{ borderLeftColor: 'var(--success-color)' }}>
+                                            <span className="note-label">Swapped to:</span>
+                                            <span className="text-success fw-bold">{request.replacementName}</span>
+                                        </div>
+                                    )}
                                     <div className="request-card-footer">
                                         <span className="request-submitted">
                                             {request.status === 'approved' ? 'Approved' : 'Denied'} on {formatDate(request.reviewedAt)}
@@ -219,26 +237,36 @@ function TimeOffRequests() {
             <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Request Time Off">
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
-                        <label className="form-label">Start Date</label>
-                        <input
-                            type="date"
-                            className="form-input"
-                            value={formData.startDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                            required
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">End Date</label>
-                        <input
-                            type="date"
-                            className="form-input"
-                            value={formData.endDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                            min={formData.startDate}
-                            required
-                        />
+                        <label className="form-label">Scheduled Shift</label>
+                        {publishedShifts.length > 0 ? (
+                            <select
+                                className="form-select"
+                                value={formData.shiftId}
+                                onChange={(e) => setFormData(prev => ({ ...prev, shiftId: e.target.value }))}
+                                required
+                            >
+                                <option value="" disabled>Select a shift</option>
+                                {publishedShifts.map(shift => {
+                                    const dateStr = addDays(shift.weekStart, DAYS_OF_WEEK.indexOf(shift.day));
+                                    const formatTime = (time) => {
+                                        const [h, m] = time.split(':');
+                                        const hour = parseInt(h);
+                                        const ampm = hour >= 12 ? 'PM' : 'AM';
+                                        const hour12 = hour % 12 || 12;
+                                        return `${hour12}:${m} ${ampm}`;
+                                    };
+                                    return (
+                                        <option key={shift.id} value={shift.id}>
+                                            {formatDate(dateStr)} ({shift.day.charAt(0).toUpperCase() + shift.day.slice(1)}) : {formatTime(shift.start)} - {formatTime(shift.end)} - {shift.role}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        ) : (
+                            <div className="empty-state-small p-md border rounded text-muted">
+                                You have no upcoming published shifts.
+                            </div>
+                        )}
                     </div>
 
                     <div className="form-group">
@@ -264,12 +292,6 @@ function TimeOffRequests() {
                             required
                         />
                     </div>
-
-                    {dateWarning && (
-                        <div className="form-warning">
-                            {dateWarning}
-                        </div>
-                    )}
 
                     <div className="modal-footer">
                         <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>

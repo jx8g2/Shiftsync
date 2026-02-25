@@ -49,7 +49,7 @@
     color: var(--text-primary);
     font-size: 0.9rem;
     cursor: pointer;
-    min-width: 180px;
+    min-width: 200px;
 }
 
 .shift-filter-select:focus {
@@ -168,15 +168,23 @@
     color: #2563eb;
 }
 
-/* Night: 4:00 PM - 10:30 PM (deep purple/indigo) */
-.shift-night {
+/* Evening (renamed from Night): 4:00 PM - 10:30 PM (deep purple/indigo) */
+.shift-night,
+.shift-evening {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(109, 40, 217, 0.15) 100%);
     border-left-color: #8b5cf6;
     color: var(--text-primary);
 }
 
-.shift-night .mini-shift-name {
+.shift-night .mini-shift-name,
+.shift-evening .mini-shift-name {
     color: #7c3aed;
+}
+
+/* My shift highlight — subtle ring on the logged-in user's own shifts */
+.my-shift-highlight {
+    outline: 2px solid rgba(14, 165, 233, 0.6);
+    outline-offset: -1px;
 }
 
 /* Multi-period combinations - show sections of each color */
@@ -198,8 +206,9 @@
     background-clip: text;
 }
 
-/* Afternoon + Night */
-.shift-afternoon-night {
+/* Afternoon + Night/Evening */
+.shift-afternoon-night,
+.shift-afternoon-evening {
     background: linear-gradient(90deg,
             rgba(59, 130, 246, 0.25) 0%,
             rgba(59, 130, 246, 0.2) 50%,
@@ -209,15 +218,17 @@
     border-image: linear-gradient(180deg, #3b82f6 50%, #8b5cf6 50%) 1;
 }
 
-.shift-afternoon-night .mini-shift-name {
+.shift-afternoon-night .mini-shift-name,
+.shift-afternoon-evening .mini-shift-name {
     background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
 
-/* Morning + Night (rare but possible) */
-.shift-morning-night {
+/* Morning + Night/Evening (rare but possible) */
+.shift-morning-night,
+.shift-morning-evening {
     background: linear-gradient(90deg,
             rgba(251, 191, 36, 0.25) 0%,
             rgba(251, 191, 36, 0.2) 50%,
@@ -227,15 +238,17 @@
     border-image: linear-gradient(180deg, #f59e0b 50%, #8b5cf6 50%) 1;
 }
 
-.shift-morning-night .mini-shift-name {
+.shift-morning-night .mini-shift-name,
+.shift-morning-evening .mini-shift-name {
     background: linear-gradient(90deg, #d97706 0%, #7c3aed 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
 
-/* All three periods - Morning + Afternoon + Night */
-.shift-morning-afternoon-night {
+/* All three periods - Morning + Afternoon + Night/Evening */
+.shift-morning-afternoon-night,
+.shift-morning-afternoon-evening {
     background: linear-gradient(90deg,
             rgba(251, 191, 36, 0.25) 0%,
             rgba(251, 191, 36, 0.2) 33%,
@@ -247,7 +260,8 @@
     border-image: linear-gradient(180deg, #f59e0b 33%, #3b82f6 33%, #3b82f6 66%, #8b5cf6 66%) 1;
 }
 
-.shift-morning-afternoon-night .mini-shift-name {
+.shift-morning-afternoon-night .mini-shift-name,
+.shift-morning-afternoon-evening .mini-shift-name {
     background: linear-gradient(90deg, #d97706 0%, #2563eb 50%, #7c3aed 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -291,18 +305,33 @@
 }
 
 .more-shifts {
+    display: block;
+    width: 100%;
     font-size: 0.7rem;
-    color: var(--text-tertiary);
+    color: var(--primary-color);
     text-align: center;
-    margin-top: 2px;
-    font-weight: 500;
+    margin-top: 3px;
+    font-weight: 600;
     cursor: pointer;
-    padding: 2px;
+    padding: 3px 4px;
     border-radius: 4px;
+    background: none;
+    border: 1px dashed var(--border-color);
+    transition: all 0.15s ease;
 }
 
 .more-shifts:hover {
     background-color: var(--bg-tertiary);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.collapse-shifts {
+    color: var(--text-tertiary);
+    border-style: solid;
+}
+
+.collapse-shifts:hover {
     color: var(--text-primary);
 }
 

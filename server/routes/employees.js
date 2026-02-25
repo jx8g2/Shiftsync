@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { db, query, queryOne, run } = require('../db');
+const { publishUpdate, broadcastUpdate } = require('../utils/redis');
 
 const router = express.Router();
 
@@ -54,49 +55,79 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-// GET /api/employees/chat-contacts - List all employees for chat (no role restrictions)
-// Everyone can see everyone for messaging purposes
+// GET /api/employees/chat-contacts - List employees for chat, scoped to same store
 router.get('/chat-contacts', authenticateToken, async (req, res) => {
     try {
-        const employees = await query('SELECT id, name, avatar, role, position, status FROM employees WHERE status = $1 ORDER BY name', ['active']);
+        let employees;
 
-        const result = employees.map(emp => ({
-            id: emp.id,
-            name: emp.name,
-            avatar: emp.avatar,
-            role: emp.role,
-            position: emp.position,
-            status: emp.status
-        }));
+        if (req.user.role === 'admin') {
+            // Admins can see everyone (for cross-store admin tasks)
+            employees = await query(
+                `SELECT id, name, avatar, role, position, status, store_id
+                 FROM employees WHERE status = $1 ORDER BY name`,
+                ['active']
+            );
+        } else {
+            // Employees and managers only see people in their own store
+            const me = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            employees = await query(
+                `SELECT id, name, avatar, role, position, status, store_id
+                 FROM employees
+                 WHERE status = $1 AND store_id = $2 AND role != 'admin'
+                 ORDER BY name`,
+                ['active', me?.store_id]
+            );
+        }
 
         res.json({
             success: true,
-            employees: result
+            employees: employees.map(emp => ({
+                id: emp.id,
+                name: emp.name,
+                avatar: emp.avatar,
+                role: emp.role,
+                position: emp.position,
+                status: emp.status,
+                storeId: emp.store_id
+            }))
         });
     } catch (error) {
         console.error('Get chat contacts error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Internal server error'
-        });
+        res.status(500).json({ success: false, error: 'Internal server error' });
     }
 });
 
 // GET /api/employees - List all employees
-// Admins see all users, Managers only see employees (not other managers)
+// Admins see all users (optionally filtered by storeId query param)
+// Managers only see employees in their own store
 router.get('/', authenticateToken, async (req, res) => {
     try {
-        // If requester is a manager (not admin), filter out other managers
         const isAdmin = req.user.role === 'admin';
         const isManager = req.user.role === 'manager';
+        const filterStoreId = req.query.storeId; // Admin can filter by store
 
         let employeesQuery = 'SELECT * FROM employees';
         let queryParams = [];
+        let conditions = [];
+        let paramCount = 1;
 
         if (isManager && !isAdmin) {
-            // Managers can only see employees with role 'employee' or themselves
-            employeesQuery += ' WHERE role = $1 OR id = $2';
-            queryParams = ['employee', req.user.id];
+            // Get the manager's store_id from DB
+            const mgr = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            const mgrStoreId = mgr?.store_id;
+            // Managers see only employees in their store (including themselves)
+            conditions.push(`store_id = $${paramCount++}`);
+            queryParams.push(mgrStoreId);
+            // Also filter out admins
+            conditions.push(`role != 'admin'`);
+        } else if (isAdmin && filterStoreId) {
+            // Admin filtering by a specific store
+            conditions.push(`store_id = $${paramCount++}`);
+            queryParams.push(filterStoreId);
+        }
+
+        if (conditions.length > 0) {
+            employeesQuery += ' WHERE ' + conditions.join(' AND ');
         }
 
         employeesQuery += ' ORDER BY name';
@@ -272,6 +303,14 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         // Generate avatar from name
         const avatar = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
+        // Determine store_id
+        // Managers: force to their own store. Admins: use provided storeId or default.
+        let assignedStoreId = req.body.storeId || 'store-001';
+        if (req.user.role === 'manager') {
+            const mgr = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            assignedStoreId = mgr?.store_id || 'store-001';
+        }
+
         // Insert employee
         // Use RETURNING id to get the new ID
         const result = await queryOne(`
@@ -288,7 +327,7 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
             phone || null,
             newRole,
             position || (newRole === 'manager' ? 'Store Manager' : 'Crew Member'),
-            'store-001',
+            assignedStoreId,
             avatar,
             hourlyRate || 15.00,
             maxHoursPerWeek || 40
@@ -356,6 +395,9 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
             additionalRoles: roles.map(r => r.role_name)
         };
 
+        // WebSocket Refresh
+        broadcastUpdate('data_refresh'); // Admin/Manager views might need this
+
         res.status(201).json({
             success: true,
             employee
@@ -384,6 +426,7 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
             hourlyRate,
             maxHoursPerWeek,
             status,
+            storeId,
             defaultShifts,
             additionalRoles
         } = req.body;
@@ -396,6 +439,17 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
                 success: false,
                 error: 'Employee not found'
             });
+        }
+
+        // Managers can only edit employees in their own store
+        if (req.user.role === 'manager') {
+            const mgr = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            if (existing.store_id !== mgr?.store_id) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'You can only edit employees in your own store'
+                });
+            }
         }
 
         // Check for duplicate username/email (excluding current employee)
@@ -457,6 +511,11 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
         if (status) {
             updates.push(`status = $${paramCount++}`);
             values.push(status);
+        }
+        // Only admin can change store assignment
+        if (storeId && req.user.role === 'admin') {
+            updates.push(`store_id = $${paramCount++}`);
+            values.push(storeId);
         }
 
         if (updates.length > 0) {
@@ -529,6 +588,10 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
             additionalRoles: roles.map(r => r.role_name)
         };
 
+        // WebSocket Refresh
+        publishUpdate(id, 'data_refresh');
+        broadcastUpdate('data_refresh'); // For managers
+
         res.json({
             success: true,
             employee
@@ -567,6 +630,9 @@ router.delete('/:id', authenticateToken, requireManager, async (req, res) => {
 
         // Delete employee (cascade will handle related records)
         await run('DELETE FROM employees WHERE id = $1', [id]);
+
+        // WebSocket Refresh
+        broadcastUpdate('data_refresh');
 
         res.json({
             success: true,

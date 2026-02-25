@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:18.1-alpine
+    container_name: shiftsync_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: shiftsync
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: shiftsync_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: shiftsync_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:password@db:5432/shiftsync
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: shiftsync-secret-key-change-in-production
+      NODE_ENV: production
+      PORT: 3000
+      BACKUP_DIR: /app/backups
+      DB_CONTAINER_NAME: shiftsync_db
+      # ── Admin account (used only on first run / fresh database) ──────────────
+      ADMIN_USERNAME: admin
+      ADMIN_EMAIL: admin@shiftsync.com
+      ADMIN_PASSWORD: admin123
+      ADMIN_NAME: System Admin
+      ADMIN_PHONE: "(512) 555-0000"
+      # ─────────────────────────────────────────────────────────────────────────
+    volumes:
+      - ./backups:/app/backups
+
+volumes:
+  postgres_data:
+  redis_data:

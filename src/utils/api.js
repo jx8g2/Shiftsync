@@ -3,7 +3,7 @@
 const API_BASE_URL = '/api';
 
 // Get stored auth token
-const getToken = () => {
+export const getToken = () => {
     const tokenData = localStorage.getItem('shiftsync_token');
     return tokenData;
 };
@@ -32,9 +32,11 @@ const apiRequest = async (endpoint, options = {}) => {
         },
     };
 
-    const url = `${API_BASE_URL}${endpoint}`;
-
     try {
+        const timestamp = Date.now();
+        const separator = endpoint.includes('?') ? '&' : '?';
+        const url = `${API_BASE_URL}${endpoint}${separator}_t=${timestamp}`;
+
         const response = await fetch(url, config);
 
         // Handle 204 No Content specifically
@@ -63,7 +65,9 @@ const apiRequest = async (endpoint, options = {}) => {
         }
 
         if (!response.ok) {
-            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+            const error = new Error(data.error || `HTTP error! status: ${response.status}`);
+            error.status = response.status;
+            throw error;
         }
 
         return data;
@@ -100,8 +104,9 @@ export const authAPI = {
 
 // Employees API
 export const employeesAPI = {
-    getAll: async () => {
-        return apiRequest('/employees');
+    getAll: async (storeId) => {
+        const params = storeId ? `?storeId=${storeId}` : '';
+        return apiRequest(`/employees${params}`);
     },
 
     getById: async (id) => {
@@ -159,6 +164,10 @@ export const schedulesAPI = {
 
     getPublishedWeeks: async (storeId) => {
         return apiRequest(`/schedules/published-weeks?storeId=${storeId}`);
+    },
+
+    getEmployeePublishedShifts: async (storeId, employeeId) => {
+        return apiRequest(`/schedules/employee/${employeeId}/published-shifts?storeId=${storeId}`);
     }
 };
 
@@ -185,6 +194,12 @@ export const requestsAPI = {
 
     getEligibleReplacements: async (id) => {
         return apiRequest(`/requests/${id}/eligible-replacements`);
+    },
+
+    delete: async (id) => {
+        return apiRequest(`/requests/${id}`, {
+            method: 'DELETE',
+        });
     },
 
     notifyReplacements: async (id) => {
@@ -238,6 +253,17 @@ export const notificationsAPI = {
         return apiRequest('/notifications/unread-count');
     },
 
+    getVapidPublicKey: async () => {
+        return apiRequest('/notifications/vapid-public-key');
+    },
+
+    subscribe: async (subscription) => {
+        return apiRequest('/notifications/subscribe', {
+            method: 'POST',
+            body: JSON.stringify(subscription),
+        });
+    },
+
     markAsRead: async (id) => {
         return apiRequest(`/notifications/${id}/read`, {
             method: 'PUT',
@@ -267,6 +293,68 @@ export const checkAPIHealth = async () => {
     }
 };
 
+// Backups API (Admin only)
+export const backupsAPI = {
+    getConfig: async () => {
+        return apiRequest('/admin/backups/config');
+    },
+
+    updateConfig: async (schedule) => {
+        return apiRequest('/admin/backups/config', {
+            method: 'POST',
+            body: JSON.stringify({ schedule }),
+        });
+    },
+
+    getList: async () => {
+        return apiRequest('/admin/backups/list');
+    },
+
+    create: async () => {
+        return apiRequest('/admin/backups/create', {
+            method: 'POST',
+        });
+    },
+
+    restore: async (filename) => {
+        return apiRequest('/admin/backups/restore', {
+            method: 'POST',
+            body: JSON.stringify({ filename }),
+        });
+    }
+};
+
+// Stores API (Admin only)
+export const storesAPI = {
+    getAll: async () => {
+        return apiRequest('/stores');
+    },
+
+    getById: async (id) => {
+        return apiRequest(`/stores/${id}`);
+    },
+
+    create: async (storeData) => {
+        return apiRequest('/stores', {
+            method: 'POST',
+            body: JSON.stringify(storeData),
+        });
+    },
+
+    update: async (id, storeData) => {
+        return apiRequest(`/stores/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(storeData),
+        });
+    },
+
+    delete: async (id) => {
+        return apiRequest(`/stores/${id}`, {
+            method: 'DELETE',
+        });
+    }
+};
+
 export default {
     auth: authAPI,
     employees: employeesAPI,
@@ -274,6 +362,8 @@ export default {
     requests: requestsAPI,
     messages: messagesAPI,
     notifications: notificationsAPI,
+    backups: backupsAPI,
+    stores: storesAPI,
     checkHealth: checkAPIHealth
 };
 

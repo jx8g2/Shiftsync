@@ -1,5 +1,6 @@
 const express = require('express');
 const { query, queryOne, run } = require('../db');
+const { publishUpdate, broadcastUpdate } = require('../utils/redis');
 
 const router = express.Router();
 
@@ -22,6 +23,47 @@ function authenticateToken(req, res, next) {
         next();
     });
 }
+
+// GET /api/notifications/vapid-public-key - Get public key for push notifications
+router.get('/vapid-public-key', authenticateToken, async (req, res) => {
+    try {
+        const vapidKeys = await queryOne('SELECT value FROM system_settings WHERE "key" = $1', ['vapid_keys']);
+        if (!vapidKeys) {
+            return res.status(404).json({ success: false, error: 'VAPID keys not configured' });
+        }
+        const keys = JSON.parse(vapidKeys.value);
+        res.json({ success: true, publicKey: keys.publicKey });
+    } catch (error) {
+        console.error('Get VAPID key error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+// POST /api/notifications/subscribe - Save push subscription
+router.post('/subscribe', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const subscription = req.body;
+
+        if (!subscription || !subscription.endpoint) {
+            return res.status(400).json({ success: false, error: 'Invalid subscription object' });
+        }
+
+        const subscriptionJson = JSON.stringify(subscription);
+
+        // Use ON CONFLICT to avoid duplicate subscriptions for the same user/device
+        await run(`
+            INSERT INTO push_subscriptions (user_id, subscription_json)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id, subscription_json) DO NOTHING
+        `, [userId, subscriptionJson]);
+
+        res.json({ success: true, message: 'Subscribed to push notifications' });
+    } catch (error) {
+        console.error('Subscribe error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
 
 // GET /api/notifications - Get user's notifications
 router.get('/', authenticateToken, async (req, res) => {

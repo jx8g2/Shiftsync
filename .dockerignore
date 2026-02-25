@@ -1,0 +1,21 @@
+# Dependencies
+node_modules
+server/node_modules
+
+# Build artifacts (rebuilt inside Docker)
+dist
+
+# Local env files (env vars are set in docker-compose.yml)
+server/.env
+.env
+
+# Windows batch scripts not needed in image
+scripts/*.bat
+
+# Backups are not part of the image
+backups
+
+# Dev/docs files
+*.md
+.git
+.gitignore

@@ -35,6 +35,6 @@
     height: 100%;
     background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(4px);
-    z-index: 95;
+    z-index: 999;
     animation: fadeIn var(--transition-fast) ease-out;
 }

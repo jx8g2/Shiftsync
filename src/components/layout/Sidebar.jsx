@@ -35,15 +35,19 @@ function Sidebar({ isOpen, onClose }) {
         { to: '/manager/chat', icon: '💬', label: 'Chat' },
     ];
 
-    // Admin has all manager links PLUS manager management
+    // Admin has its own /admin route tree with store management
     const adminLinks = [
-        { to: '/manager', icon: '📊', label: 'Dashboard' },
-        { to: '/manager/employees', icon: '👥', label: 'Team Management' }, // Unified view with tabs
-        { to: '/manager/schedule-builder', icon: '📅', label: 'Schedule Builder' },
-        { to: '/manager/requests', icon: '📝', label: 'Request Approvals' },
-        { to: '/manager/store-hours', icon: '🏪', label: 'Store Hours' },
-        { to: '/manager/reports', icon: '📈', label: 'Reports' },
-        { to: '/manager/chat', icon: '💬', label: 'Chat' },
+        { to: '/admin', icon: '📊', label: 'Dashboard' },
+        { to: '/admin/stores', icon: '🏪', label: 'Store Management' },
+        { to: '/admin/employees', icon: '👥', label: 'All Employees' },
+        { to: '/admin/managers', icon: '👔', label: 'Managers' },
+        { to: '/admin/schedule-builder', icon: '📅', label: 'Schedule Builder' },
+        { to: '/admin/requests', icon: '📝', label: 'Request Approvals' },
+        { to: '/admin/store-hours', icon: '🕐', label: 'Store Hours' },
+        { to: '/admin/reports', icon: '📈', label: 'Reports' },
+        { to: '/admin/chat', icon: '💬', label: 'Chat' },
+        { type: 'divider' },
+        { to: '/admin/settings', icon: '💾', label: 'Database Backups' },
     ];
 
     // Get links based on role

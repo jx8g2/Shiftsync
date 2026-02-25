@@ -284,6 +284,43 @@
     color: var(--color-danger);
 }
 
+/* Admin Store Filter */
+.header-store-filter {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: 4px 12px;
+    background: var(--color-bg-glass);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    transition: all var(--transition-fast);
+}
+
+.header-store-filter:hover {
+    border-color: var(--color-primary);
+}
+
+.store-filter-icon {
+    font-size: var(--font-size-base);
+}
+
+.store-filter-select {
+    background: transparent;
+    border: none;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    padding: 4px 0;
+    min-width: 100px;
+}
+
+.store-filter-select option {
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+}
+
 /* Header User */
 .header-user {
     display: flex;

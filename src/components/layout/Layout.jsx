@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import ToastContainer from '../ui/Toast';
 import './Layout.css';
 
 function Layout() {
@@ -25,6 +26,7 @@ function Layout() {
             {isSidebarOpen && (
                 <div className="sidebar-overlay" onClick={closeSidebar}></div>
             )}
+            <ToastContainer />
         </div>
     );
 }
