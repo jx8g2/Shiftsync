@@ -1,116 +1,59 @@
 # ShiftSync Scheduling App
 
-A comprehensive employee scheduling and management system.
+A comprehensive employee scheduling, communication, and management system.
 
 ## 📋 Prerequisites
 
-Before running the application, ensure you have the following installed:
+*   **Docker** & **Docker Compose**: Required to run the application, PostgreSQL database, and Redis cache.
 
-*   **Node.js**: Version 23.0.0 or higher.
-*   **Docker Desktop**: To run the PostgreSQL database.
+## 🚀 Quick Start (Docker)
 
-## 🚀 Quick Start (Development)
+The easiest way to run ShiftSync is using the provided Docker configuration.
 
-1.  **Install Dependencies**
-    Run the following command in the root directory to install dependencies for both the frontend and backend:
+1.  **Configure Environment Variables**
+    Review the `docker-compose.yml` file in the root directory. You can adjust the default Admin account credentials passed as environment variables in the `app` service:
+    * `ADMIN_USERNAME`
+    * `ADMIN_EMAIL`
+    * `ADMIN_PASSWORD`
+    * `JWT_SECRET` (Change this for production!)
+
+2.  **Start the Application**
+    Run the following command in the root directory:
     ```bash
-    npm install
-    cd server && npm install && cd ..
+    docker compose up --build -d
     ```
 
-2.  **Start the Database**
-    The application uses PostgreSQL running in a Docker container.
-    ```bash
-    cd scripts
-    docker compose up -d
-    cd ..
-    ```
-
-3.  **Configure Environment**
-    Ensure the `server/.env` file exists with the following content (update keys for production!):
-    ```env
-    DATABASE_URL=postgresql://postgres:password@localhost:5432/shiftsync
-    PORT=3001
-    NODE_ENV=development
-    JWT_SECRET=your_secure_jwt_secret_here    <-- CHANGE THIS IN PRODUCTION
-    CHAT_ENCRYPTION_KEY=shiftsync-chat-key-32chars!! <-- CHANGE THIS IN PRODUCTION (Must be 32 chars)
-    ```
-
-4.  **Start the Application**
-    You can start both the backend and frontend using the provided script (Windows):
-    ```powershell
-    .\start-dev.bat
-    ```
-    
-    Or manually:
-    *   **Backend**: `cd server && npm run dev`
-    *   **Frontend**: `npm run dev`
+3.  **Access the App**
+    Open your browser and navigate to `http://localhost:3000`.
 
 ## 👤 Default Login (Admin)
 
-When the application starts for the first time with a fresh database, it will create a default **System Admin** account.
+When the database initializes for the first time, it will create a System Admin account using the credentials defined in `docker-compose.yml`:
 
-*   **Email**: `admin@shiftsync.com`
-*   **Password**: `admin123` (or configured via environment variables)
+*   **Email**: `admin@shiftsync.com` (default)
+*   **Password**: `admin123` (default)
 
-### Changing Default Credentials
-To change the initial admin credentials for a new deployment:
-1.  Set `ADMIN_EMAIL`, `ADMIN_PASSWORD`, etc. in your environment variables.
-2.  Reset the database (delete the Docker volume).
-3.  Restart the server.
+*Note: To change these after the database has already been created, you must either update the employee directly in the app or safely reset the database volume.*
 
-## � Database Backups
+## 💾 Database Backups
 
-The system includes a built-in backup mechanism.
+The system includes a built-in automated backup mechanism directly accessible via the Admin Dashboard.
 
-### Automated Backups
-*   **Schedule**: Runs automatically every day at midnight (00:00).
-*   **Rotation**: Stores the last 7 daily backups.
-*   **Location**: `backups/` folder in the root directory.
+### Configuration & Restoration
+1. Log in as an Admin.
+2. Navigate to **Database Backups** (`/admin/settings`) using the sidebar.
+3. **Automated Schedule**: Configure the automated backup interval (e.g., Every 12 hours, 24 hours).
+4. **Manual Backup**: Click "Backup Now" to trigger an immediate snapshot.
+5. **Restoration**: Click "Restore" on any available backup to immediately overwrite the database with that snapshot.
 
-### Manual Backup
-To trigger a backup manually immediately:
-1.  Navigate to `scripts/`.
-2.  Run `manual-backup.bat`.
+*Backups are physically stored in the `backups/` directory on the host machine, mounted as a Docker volume.*
 
-### Restoring a Backup
-To restore data from a SQL file:
-```bash
-# WARNING: This overwrites current data!
-type ..\backups\your-backup-file.sql | docker exec -i shiftsync_postgres psql -U postgres -d shiftsync
-```
+## 📦 Production Deployment
 
-## �📦 Production Deployment
-
-For a production environment, follow these additional steps:
+For a production environment, ensure you follow these security steps:
 
 1.  **Security**:
-    *   Change `JWT_SECRET` in `server/.env` to a long, random string.
-    *   Change `CHAT_ENCRYPTION_KEY` in `server/.env` to a *new* 32-character string.
-    *   Update `scripts/admin-credentials.json` with a strong password before initial deployment.
-
-2.  **Database**:
-    *   Ensure the Docker volume `postgres_data` is backed up regularly.
-    *   Alternatively, point `DATABASE_URL` to a managed PostgreSQL service (e.g., AWS RDS, Heroku Postgres).
-
-3.  **Frontend Build**:
-    *   Run `npm run build` to create static assets in `dist/`.
-    *   The backend is configured to serve these static files automatically via `server/index.js`.
-    
-4.  **Process Management**:
-    *   Use a process manager like PM2 to run the server:
-        ```bash
-        npm install -g pm2
-        cd server
-        pm2 start index.js --name "shiftsync-server"
-        ```
-
-## 🛠 Troubleshooting
-
-*   **Database Connection Error**: Ensure Docker Desktop is running and the container is up (`docker ps`).
-*   **Login Failed**: Check if the default password matches `scripts/admin-credentials.json`. If the database was already created with old credentials, you may need to reset it:
-    ```bash
-    cd scripts
-    docker compose down -v
-    docker compose up -d
-    ```
+    *   Change `JWT_SECRET` in `docker-compose.yml` to a long, random, secure string.
+    *   Set a strong `ADMIN_PASSWORD` before the first launch.
+2.  **Volumes**:
+    *   Ensure the host directories mapped to the Docker volumes (`postgres_data`, `redis_data`, `backups`) are secure and monitored.
