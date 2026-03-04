@@ -66,8 +66,6 @@ services:
       ADMIN_PHONE: "(512) 555-0000"
       # ─────────────────────────────────────────────────────────────────────────
     volumes:
-      - ./server:/app/server
-      - ./docs:/app/docs
       - ./backups:/app/backups
 
 volumes:
