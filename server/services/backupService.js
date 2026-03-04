@@ -9,7 +9,7 @@ const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, '../../backups
 const CONTAINER_NAME = process.env.DB_CONTAINER_NAME || 'shiftsync_db';
 const DB_USER = 'postgres';
 const DB_NAME = 'shiftsync';
-const MAX_BACKUPS = 7; // Keep last 7 backups
+const MAX_BACKUPS_DEFAULT = 7; // used only if DB setting is absent
 
 let currentTask = null;
 
@@ -19,9 +19,11 @@ if (!fs.existsSync(BACKUP_DIR)) {
 }
 
 // Parse DATABASE_URL into pg_dump / psql CLI args
-// Format: postgres://user:password@host:port/dbname
 const parseDbUrl = () => {
-    const url = new URL(process.env.DATABASE_URL || 'postgres://postgres:password@db:5432/shiftsync');
+    if (!process.env.DATABASE_URL) {
+        throw new Error('DATABASE_URL environment variable is required');
+    }
+    const url = new URL(process.env.DATABASE_URL);
     return {
         host: url.hostname,
         port: url.port || '5432',
@@ -38,26 +40,38 @@ const pgEnv = () => {
 };
 
 const performBackup = () => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `backup-${timestamp}.sql`;
-    const filepath = path.join(BACKUP_DIR, filename);
-    const { host, port, user, dbname } = parseDbUrl();
+    return new Promise((resolve, reject) => {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `backup-${timestamp}.sql`;
+        const filepath = path.join(BACKUP_DIR, filename);
+        const { host, port, user, dbname } = parseDbUrl();
 
-    console.log(`[Backup] Starting database backup: ${filename}`);
+        console.log(`[Backup] Starting database backup: ${filename}`);
 
-    const command = `pg_dump -h ${host} -p ${port} -U ${user} -d ${dbname} -c --if-exists -f "${filepath}"`;
+        const command = `pg_dump -h ${host} -p ${port} -U ${user} -d ${dbname} -c --if-exists -f "${filepath}"`;
 
-    exec(command, { env: pgEnv() }, (error) => {
-        if (error) {
-            console.error(`[Backup] Error: ${error.message}`);
-            return;
-        }
-        console.log(`[Backup] Successfully created ${filename}`);
-        cleanupOldBackups();
+        exec(command, { env: pgEnv() }, (error) => {
+            if (error) {
+                console.error(`[Backup] Error: ${error.message}`);
+                return reject(error);
+            }
+            console.log(`[Backup] Successfully created ${filename}`);
+            cleanupOldBackups();
+            resolve({ filename, filepath });
+        });
     });
 };
 
-const cleanupOldBackups = () => {
+const cleanupOldBackups = async () => {
+    // Read max from DB so changes take effect without a restart
+    let maxBackups = MAX_BACKUPS_DEFAULT;
+    try {
+        const setting = await queryOne('SELECT value FROM system_settings WHERE "key" = $1', ['backup_max_count']);
+        if (setting && parseInt(setting.value, 10) > 0) {
+            maxBackups = parseInt(setting.value, 10);
+        }
+    } catch (_) { /* use default */ }
+
     fs.readdir(BACKUP_DIR, (err, files) => {
         if (err) {
             console.error('[Backup] cleanup failed:', err);
@@ -66,8 +80,8 @@ const cleanupOldBackups = () => {
 
         const sqlFiles = files.filter(f => f.endsWith('.sql')).sort().reverse();
 
-        if (sqlFiles.length > MAX_BACKUPS) {
-            const filesToDelete = sqlFiles.slice(MAX_BACKUPS);
+        if (sqlFiles.length > maxBackups) {
+            const filesToDelete = sqlFiles.slice(maxBackups);
             filesToDelete.forEach(file => {
                 const deletePath = path.join(BACKUP_DIR, file);
                 fs.unlink(deletePath, err => {
@@ -135,18 +149,42 @@ const getBackups = () => {
 
 const restoreBackup = (filename) => {
     return new Promise((resolve, reject) => {
-        const filepath = path.join(BACKUP_DIR, filename);
+        // 1. Sanitize and validate filename to prevent Path Traversal and Command Injection
+        if (!filename || typeof filename !== 'string') {
+            return reject(new Error('Invalid filename'));
+        }
+
+        const safeFilename = path.basename(filename);
+        if (safeFilename !== filename) {
+            return reject(new Error('Invalid filename: Path traversal characters are not allowed'));
+        }
+
+        // Strict regex for backup filename: backup-YYYY-MM-DDTHH-mm-ss-SSSZ.sql OR mock-*.sql
+        const backupRegex = /^(backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z|mock-[a-zA-Z0-9\-_]+)\.sql$/;
+        if (!backupRegex.test(safeFilename)) {
+            return reject(new Error('Invalid backup filename format'));
+        }
+
+        const filepath = path.join(BACKUP_DIR, safeFilename);
         if (!fs.existsSync(filepath)) {
             return reject(new Error('Backup file not found'));
+        }
+
+        // 2. Performance check: Ensure file is not empty before destructive operation
+        const stats = fs.statSync(filepath);
+        if (stats.size === 0) {
+            return reject(new Error('Backup file is empty; restoration aborted to prevent data loss'));
         }
 
         const { host, port, user, dbname } = parseDbUrl();
         const env = pgEnv();
 
-        console.log(`[Backup] Restoring from ${filename}...`);
+        console.log(`[Backup] Restoring from ${safeFilename}...`);
 
-        // 1. Drop and recreate schema for a clean slate
-        const dropCommand = `psql -h ${host} -p ${port} -U ${user} -d ${dbname} -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"`;
+        // 3. Drop and recreate schema for a clean slate
+        // Use double quotes around vars in shell command to prevent any potential injection if vars were tainted
+        // though they come from URL parser which validated them.
+        const dropCommand = `psql -h "${host}" -p "${port}" -U "${user}" -d "${dbname}" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"`;
 
         exec(dropCommand, { env }, (dropError) => {
             if (dropError) {
@@ -156,8 +194,8 @@ const restoreBackup = (filename) => {
 
             console.log('[Backup] Database cleaned. Applying backup...');
 
-            // 2. Restore from file
-            const restoreCommand = `psql -h ${host} -p ${port} -U ${user} -d ${dbname} -f "${filepath}"`;
+            // 4. Restore from file
+            const restoreCommand = `psql -h "${host}" -p "${port}" -U "${user}" -d "${dbname}" -f "${filepath}"`;
 
             exec(restoreCommand, { env }, (error) => {
                 if (error) {

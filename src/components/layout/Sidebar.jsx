@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import './Sidebar.css';
 
 function Sidebar({ isOpen, onClose }) {
-    const { user, logout, isEmployee, isManager, isAdmin } = useAuth();
+    const { user, logout, isEmployee, isManager, isAdmin, isShiftLead } = useAuth();
     const navigate = useNavigate();
 
     const handleLogout = () => {
@@ -21,8 +21,17 @@ function Sidebar({ isOpen, onClose }) {
     const employeeLinks = [
         { to: '/employee', icon: '📊', label: 'Dashboard' },
         { to: '/employee/schedule', icon: '📅', label: 'My Schedule' },
-        { to: '/employee/time-off', icon: '🏖️', label: 'Time Off' },
+        { to: '/employee/time-off', icon: '🏖️', label: 'Time Off & Covers' },
         { to: '/employee/chat', icon: '💬', label: 'Chat' },
+    ];
+
+    const shiftLeadLinks = [
+        { to: '/employee', icon: '📊', label: 'Dashboard' },
+        { to: '/employee/schedule', icon: '📅', label: 'My Schedule' },
+        { to: '/employee/time-off', icon: '🏖️', label: 'Time Off & Covers' },
+        { to: '/employee/chat', icon: '💬', label: 'Chat' },
+        { type: 'divider', label: 'Management' },
+        { to: '/shift-lead/requests', icon: '🔄', label: 'Shift Cover Approvals' },
     ];
 
     const managerLinks = [
@@ -39,12 +48,7 @@ function Sidebar({ isOpen, onClose }) {
     const adminLinks = [
         { to: '/admin', icon: '📊', label: 'Dashboard' },
         { to: '/admin/stores', icon: '🏪', label: 'Store Management' },
-        { to: '/admin/employees', icon: '👥', label: 'All Employees' },
         { to: '/admin/managers', icon: '👔', label: 'Managers' },
-        { to: '/admin/schedule-builder', icon: '📅', label: 'Schedule Builder' },
-        { to: '/admin/requests', icon: '📝', label: 'Request Approvals' },
-        { to: '/admin/store-hours', icon: '🕐', label: 'Store Hours' },
-        { to: '/admin/reports', icon: '📈', label: 'Reports' },
         { to: '/admin/chat', icon: '💬', label: 'Chat' },
         { type: 'divider' },
         { to: '/admin/settings', icon: '💾', label: 'Database Backups' },
@@ -63,6 +67,10 @@ function Sidebar({ isOpen, onClose }) {
         links = managerLinks;
         roleLabel = 'Manager';
         roleColor = 'secondary';
+    } else if (isShiftLead) {
+        links = shiftLeadLinks;
+        roleLabel = 'Shift Lead';
+        roleColor = 'warning';
     }
 
     return (

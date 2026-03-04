@@ -31,16 +31,21 @@ export const TIME_OFF_TYPES = [
 ];
 
 export const POSITIONS = [
-    'Cashier',
-    'Cook',
-    'Shift Lead'
+    { value: 'front-house', label: 'Front of House', category: 'FOH' },
+    { value: 'back-house', label: 'Back of House', category: 'BOH' },
+    { value: 'shift lead', label: 'Shift Lead', category: 'ALL' }
 ];
 
 // Available roles for shift assignments
 export const ROLES = [
-    'Cashier',
-    'Cook',
-    'Shift Lead'
+    { value: 'Drive Through Cashier', label: 'Drive Through Cashier', category: 'FOH' },
+    { value: 'Front Line Cashier', label: 'Front Line Cashier', category: 'FOH' },
+    { value: 'Drive Through Order Taker', label: 'Drive Through Order Taker', category: 'FOH' },
+    { value: 'Line Cook', label: 'Line Cook', category: 'BOH' },
+    { value: 'Biscuits', label: 'Biscuits (Breakfast Only)', category: 'BOH' },
+    { value: 'Grill', label: 'Grill (Breakfast Only)', category: 'BOH' },
+    { value: 'Prep', label: 'Prep', category: 'BOH' },
+    { value: 'Backup Cook', label: 'Backup Cook', category: 'BOH' }
 ];
 
 export const formatTime = (time) => {
@@ -55,7 +60,16 @@ export const formatTime = (time) => {
 export const formatDate = (dateStr) => {
     if (!dateStr) return '';
     try {
-        const date = new Date(dateStr);
+        let date;
+        if (dateStr.includes('T')) {
+            // Already an ISO string, parsing directly
+            date = new Date(dateStr);
+        } else {
+            // Replace dashes with slashes to force local timezone parsing for simple date strings
+            // "2024-03-05" -> "2024/03/05"
+            const localDateStr = dateStr.includes('-') ? dateStr.replace(/-/g, '/') : dateStr;
+            date = new Date(localDateStr);
+        }
         if (isNaN(date.getTime())) return 'Invalid Date';
         return date.toLocaleDateString('en-US', {
             weekday: 'short',
@@ -70,7 +84,13 @@ export const formatDate = (dateStr) => {
 export const formatDateFull = (dateStr) => {
     if (!dateStr) return '';
     try {
-        const date = new Date(dateStr);
+        let date;
+        if (dateStr.includes('T')) {
+            date = new Date(dateStr);
+        } else {
+            const localDateStr = dateStr.includes('-') ? dateStr.replace(/-/g, '/') : dateStr;
+            date = new Date(localDateStr);
+        }
         if (isNaN(date.getTime())) return 'Invalid Date';
         return date.toLocaleDateString('en-US', {
             weekday: 'long',

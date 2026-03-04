@@ -1,8 +1,67 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const { pool, query, queryOne, run } = require('../db');
 const { sendPushNotification } = require('../utils/push');
 const { publishUpdate, broadcastUpdate } = require('../utils/redis');
 const router = express.Router();
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('CRITICAL: JWT_SECRET environment variable is not defined.');
+    process.exit(1);
+}
+
+// Middleware to authenticate JWT token
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ success: false, error: 'Access token required' });
+    }
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).json({ success: false, error: 'Invalid or expired token' });
+        }
+        req.user = user;
+        next();
+    });
+}
+
+// Apply authentication to all schedule routes
+router.use(authenticateToken);
+
+const DAY_TO_OFFSET = {
+    monday: 0,
+    tuesday: 1,
+    wednesday: 2,
+    thursday: 3,
+    friday: 4,
+    saturday: 5,
+    sunday: 6
+};
+
+function normalizeDayOfWeek(day) {
+    if (!day) return '';
+    return String(day).trim().toLowerCase();
+}
+
+function computeShiftDate(weekStart, dayOfWeek) {
+    if (!weekStart) return null;
+    const weekMatch = String(weekStart).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!weekMatch) return null;
+
+    const offset = DAY_TO_OFFSET[normalizeDayOfWeek(dayOfWeek)];
+    if (offset === undefined) return null;
+
+    const year = Number(weekMatch[1]);
+    const month = Number(weekMatch[2]);
+    const day = Number(weekMatch[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + offset);
+    return date.toISOString().split('T')[0];
+}
 
 // Get schedule for a specific week and store
 router.get('/', async (req, res) => {
@@ -225,14 +284,20 @@ router.post('/:id/publish', async (req, res) => {
 router.get('/published-weeks', async (req, res) => {
     try {
         const { storeId } = req.query;
+        let effectiveStoreId = storeId;
 
-        if (!storeId) {
+        if (!effectiveStoreId && req.user.role !== 'admin') {
+            const me = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            effectiveStoreId = me?.store_id || null;
+        }
+
+        if (!effectiveStoreId) {
             return res.status(400).json({ success: false, error: 'Store ID is required' });
         }
 
         const publishedSchedules = await query(
             'SELECT week_start FROM schedules WHERE store_id = $1 AND published = 1 ORDER BY week_start',
-            [storeId]
+            [effectiveStoreId]
         );
 
         // Return array of week start dates
@@ -248,21 +313,34 @@ router.get('/published-weeks', async (req, res) => {
 // Get upcoming published shifts for an employee
 router.get('/employee/:employeeId/published-shifts', async (req, res) => {
     try {
-        const { employeeId } = req.params;
-        const { storeId } = req.query;
-
-        if (!storeId) {
-            return res.status(400).json({ success: false, error: 'Store ID is required' });
+        const targetEmployeeId = Number(req.params.employeeId);
+        if (!Number.isInteger(targetEmployeeId)) {
+            return res.status(400).json({ success: false, error: 'Invalid employee ID' });
         }
 
-        // We want all shifts belonging to published schedules, 
-        // starting from today or the current week, but for simplicity
-        // let's grab all published future/current shifts for this employee.
+        const employee = await queryOne(
+            'SELECT id, store_id FROM employees WHERE id = $1',
+            [targetEmployeeId]
+        );
 
-        // Let's get all published schedules for the store first
+        if (!employee) {
+            return res.status(404).json({ success: false, error: 'Employee not found' });
+        }
+
+        if (req.user.role === 'employee' && req.user.id !== targetEmployeeId) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        if (req.user.role === 'manager') {
+            const manager = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            if (!manager || manager.store_id !== employee.store_id) {
+                return res.status(403).json({ success: false, error: 'Access denied' });
+            }
+        }
+
         const publishedSchedules = await query(
             'SELECT id, week_start FROM schedules WHERE store_id = $1 AND published = 1 ORDER BY week_start DESC',
-            [storeId]
+            [employee.store_id]
         );
 
         if (publishedSchedules.length === 0) {
@@ -273,11 +351,15 @@ router.get('/employee/:employeeId/published-shifts', async (req, res) => {
 
         const employeeShifts = await query(
             'SELECT * FROM shifts WHERE employee_id = $1 AND schedule_id = ANY($2)',
-            [employeeId, scheduleIds]
+            [targetEmployeeId, scheduleIds]
         );
+
+        const now = new Date();
+        const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
         const result = employeeShifts.map(shift => {
             const schedule = publishedSchedules.find(s => s.id === shift.schedule_id);
+            const shiftDate = computeShiftDate(schedule?.week_start, shift.day_of_week);
             return {
                 id: shift.id,
                 scheduleId: shift.schedule_id,
@@ -285,9 +367,14 @@ router.get('/employee/:employeeId/published-shifts', async (req, res) => {
                 day: shift.day_of_week,
                 start: shift.start_time,
                 end: shift.end_time,
-                role: shift.role
+                role: shift.role,
+                shiftDate
             };
-        });
+        }).filter(shift => shift.shiftDate && shift.shiftDate >= todayLocal)
+            .sort((a, b) => {
+                if (a.shiftDate !== b.shiftDate) return a.shiftDate.localeCompare(b.shiftDate);
+                return String(a.start || '').localeCompare(String(b.start || ''));
+            });
 
         res.json({ success: true, shifts: result });
     } catch (error) {

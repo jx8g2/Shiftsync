@@ -7,13 +7,17 @@ const { publishUpdate, broadcastUpdate } = require('../utils/redis');
 const router = express.Router();
 
 // Encryption key (in production, use environment variable)
-const ENCRYPTION_KEY = process.env.CHAT_ENCRYPTION_KEY || 'shiftsync-chat-key-32chars!!';
+const ENCRYPTION_KEY = process.env.CHAT_ENCRYPTION_KEY;
+if (!ENCRYPTION_KEY) {
+    console.warn('WARNING: CHAT_ENCRYPTION_KEY is not defined. Using a generated key for this session only.');
+}
+const KEY_BUFFER = Buffer.from((ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex')).padEnd(32).slice(0, 32));
 const IV_LENGTH = 16;
 
 // Encrypt message
 function encrypt(text) {
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.padEnd(32).slice(0, 32)), iv);
+    const cipher = crypto.createCipheriv('aes-256-cbc', KEY_BUFFER, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     return { encrypted, iv: iv.toString('hex') };
@@ -22,7 +26,7 @@ function encrypt(text) {
 // Decrypt message
 function decrypt(encrypted, ivHex) {
     const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.padEnd(32).slice(0, 32)), iv);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', KEY_BUFFER, iv);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
@@ -31,7 +35,10 @@ function decrypt(encrypted, ivHex) {
 // Middleware to authenticate JWT token
 function authenticateToken(req, res, next) {
     const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'shiftsync-secret-key';
+    const JWT_SECRET = process.env.JWT_SECRET;
+    if (!JWT_SECRET) {
+        return res.status(500).json({ success: false, error: 'Server configuration error' });
+    }
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -71,13 +78,19 @@ router.get('/conversations', authenticateToken, async (req, res) => {
             ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC
         `, [userId]);
 
-        const result = await Promise.all(conversations.map(async conv => {
-            const members = await query(`
-                SELECT e.id, e.name, e.avatar, e.role, e.store_id
+        // Bulk-fetch all members for all conversations at once (avoids N+1)
+        const conversationIds = conversations.map(c => c.id);
+        const allMembers = conversationIds.length > 0
+            ? await query(`
+                SELECT e.id, e.name, e.avatar, e.role, e.store_id, cm.conversation_id
                 FROM employees e
                 INNER JOIN conversation_members cm ON e.id = cm.user_id
-                WHERE cm.conversation_id = $1
-            `, [conv.id]);
+                WHERE cm.conversation_id = ANY($1)
+            `, [conversationIds])
+            : [];
+
+        const result = conversations.map(conv => {
+            const members = allMembers.filter(m => m.conversation_id === conv.id);
 
             // For non-admins, skip conversations that contain members from other stores (unless they are admins)
             if (!isAdmin) {
@@ -85,17 +98,31 @@ router.get('/conversations', authenticateToken, async (req, res) => {
                 if (hasOutsider) return null;
             }
 
+            // Decrypt conversation name
+            let decryptedName = conv.name;
+            if (decryptedName) {
+                try {
+                    // We need the IV. We'll store it appended to the encrypted string like: ivHex:encryptedHex
+                    if (decryptedName.includes(':')) {
+                        const [iv, encrypted] = decryptedName.split(':');
+                        decryptedName = decrypt(encrypted, iv);
+                    }
+                } catch (e) {
+                    decryptedName = '[Decryption failed]';
+                }
+            }
+
             return {
                 id: conv.id,
-                name: conv.name,
+                name: decryptedName,
                 isTeam: Boolean(conv.is_team),
                 createdBy: conv.created_by,
                 createdAt: conv.created_at,
                 messageCount: parseInt(conv.message_count),
                 lastMessageAt: conv.last_message_at,
-                members: members.map(({ store_id, ...rest }) => rest)
+                members: members.map(({ store_id, conversation_id, ...rest }) => rest)
             };
-        }));
+        });
 
         res.json({ success: true, conversations: result.filter(Boolean) });
     } catch (error) {
@@ -132,11 +159,18 @@ router.post('/conversations', authenticateToken, async (req, res) => {
             }
         }
 
+        // Encrypt conversation name if present
+        let finalName = name || null;
+        if (finalName) {
+            const { encrypted, iv } = encrypt(finalName);
+            finalName = `${iv}:${encrypted}`;
+        }
+
         const result = await queryOne(`
             INSERT INTO conversations (name, is_team, created_by)
             VALUES ($1, $2, $3)
             RETURNING id
-        `, [name || null, isTeam ? 1 : 0, createdBy]);
+        `, [finalName, isTeam ? 1 : 0, createdBy]);
 
         const conversationId = result.id;
 
@@ -157,7 +191,7 @@ router.post('/conversations', authenticateToken, async (req, res) => {
             success: true,
             conversation: {
                 id: conversation.id,
-                name: conversation.name,
+                name: name || null, // Return the original unencrypted name back to the creator
                 isTeam: Boolean(conversation.is_team),
                 createdBy: conversation.created_by,
                 createdAt: conversation.created_at,
@@ -175,7 +209,11 @@ router.get('/conversations/:id/messages', authenticateToken, async (req, res) =>
     try {
         const { id } = req.params;
         const userId = req.user.id;
-        const { limit = 50, before } = req.query;
+        const { before } = req.query;
+        let limit = parseInt(req.query.limit) || 50;
+
+        // DoS Protection: Cap the limit
+        if (limit > 100) limit = 100;
 
         // Verify user is a member
         const isMember = await queryOne(
@@ -202,7 +240,7 @@ router.get('/conversations/:id/messages', authenticateToken, async (req, res) =>
         }
 
         messagesQuery += ` ORDER BY m.created_at DESC LIMIT $${paramCount++}`;
-        params.push(parseInt(limit));
+        params.push(limit);
 
         const messages = await query(messagesQuery, params);
 
@@ -281,23 +319,25 @@ router.post('/conversations/:id/messages', authenticateToken, async (req, res) =
               AND cm.user_id != $2
         `, [id, senderId]);
 
-        for (const member of otherMembers) {
+        const notificationPromises = otherMembers.map(async (member) => {
             await run(`
                 INSERT INTO notifications (user_id, type, title, message, related_entity_type, related_entity_id)
                 VALUES ($1, 'message', $2, $3, 'conversation', $4)
-            `, [member.user_id, `New message from ${senderNameStr}`, content.substring(0, 100), id]);
+            `, [member.user_id, `New message from ${senderNameStr}`, 'You have a new message. Tap to view.', id]);
 
-            // Background Push
+            // Background Push — also use generic text, not plaintext content
             sendPushNotification(member.user_id, {
                 title: `💬 New message from ${senderNameStr}`,
-                body: content.substring(0, 100),
+                body: 'You have a new message. Tap to view.',
                 url: '/employee/chat' // Adjust if manager
             });
 
             // WebSocket Refresh
             publishUpdate(member.user_id, 'notification_refresh');
             publishUpdate(member.user_id, 'data_refresh'); // For conversation list update if needed
-        }
+        });
+
+        await Promise.all(notificationPromises);
 
         res.status(201).json({
             success: true,

@@ -21,6 +21,7 @@ function ManagerForm() {
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [status, setStatus] = useState('active');
+    const [position, setPosition] = useState('Store Manager');
     const [storeId, setStoreId] = useState('');
     const [stores, setStores] = useState([]);
 
@@ -53,6 +54,7 @@ function ManagerForm() {
                 setEmail(mgr.email || '');
                 setPhone(mgr.phone || '');
                 setStatus(mgr.status || 'active');
+                setPosition(mgr.position || 'Store Manager');
                 setStoreId(mgr.storeId || '');
             } else {
                 setError(response.error || 'Failed to load manager');
@@ -107,7 +109,7 @@ function ManagerForm() {
                 email: email.trim(),
                 phone: phone.trim(),
                 role: 'manager',
-                position: 'Store Manager',
+                position: position,
                 status,
                 storeId: storeId || undefined
             };
@@ -265,6 +267,18 @@ function ManagerForm() {
                                 </select>
                             </div>
                         )}
+
+                        <div className="form-group">
+                            <label className="form-label">Position</label>
+                            <select
+                                className="form-input"
+                                value={position}
+                                onChange={(e) => setPosition(e.target.value)}
+                            >
+                                <option value="Store Manager">Store Manager</option>
+                                <option value="Assistant Manager">Assistant Manager</option>
+                            </select>
+                        </div>
 
                         <div className="form-group">
                             <label className="form-label">Assigned Store</label>

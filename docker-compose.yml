@@ -7,8 +7,13 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: shiftsync
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - shiftsync-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -22,6 +27,8 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
+    networks:
+      - shiftsync-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -34,6 +41,8 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    networks:
+      - shiftsync-net
     depends_on:
       db:
         condition: service_healthy
@@ -43,10 +52,12 @@ services:
       DATABASE_URL: postgres://postgres:password@db:5432/shiftsync
       REDIS_URL: redis://redis:6379
       JWT_SECRET: shiftsync-secret-key-change-in-production
+      CHAT_ENCRYPTION_KEY: shiftsync-chat-encrypt-change-me!
       NODE_ENV: production
       PORT: 3000
       BACKUP_DIR: /app/backups
       DB_CONTAINER_NAME: shiftsync_db
+      POSTGRES_HOST: db
       # ── Admin account (used only on first run / fresh database) ──────────────
       ADMIN_USERNAME: admin
       ADMIN_EMAIL: admin@shiftsync.com
@@ -55,8 +66,13 @@ services:
       ADMIN_PHONE: "(512) 555-0000"
       # ─────────────────────────────────────────────────────────────────────────
     volumes:
+      - ./server:/app/server
+      - ./docs:/app/docs
       - ./backups:/app/backups
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  shiftsync-net:

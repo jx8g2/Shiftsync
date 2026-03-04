@@ -25,7 +25,7 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 export function NotificationProvider({ children }) {
-    const { user, isManager, isAdmin } = useAuth();
+    const { user, isManager, isAdmin, isShiftLead } = useAuth();
     const navigate = useNavigate();
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
@@ -53,8 +53,9 @@ export function NotificationProvider({ children }) {
     const getRolePath = useCallback(() => {
         if (isAdmin) return '/admin';
         if (isManager) return '/manager';
+        if (isShiftLead) return '/employee'; // shift leads still have employee base
         return '/employee';
-    }, [isAdmin, isManager]);
+    }, [isAdmin, isManager, isShiftLead]);
 
     // Handle navigation when a notification is clicked
     const navigateToNotification = useCallback(async (notification) => {
@@ -76,6 +77,12 @@ export function NotificationProvider({ children }) {
             case 'shift':
             case 'schedule':
                 targetPath = user.role === 'employee' ? '/employee/schedule' : `${rolePath}/schedule-builder`;
+                break;
+            case 'swap_request':
+                // Shift leads go to their approvals page; employees go to time-off; managers go to requests
+                if (isShiftLead) targetPath = '/shift-lead/requests';
+                else if (user.role === 'employee') targetPath = '/employee/time-off';
+                else targetPath = `${rolePath}/requests`;
                 break;
             case 'request':
             case 'approval':

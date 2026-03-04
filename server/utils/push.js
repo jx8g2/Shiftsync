@@ -2,10 +2,19 @@ const webpush = require('web-push');
 const { query, queryOne } = require('../db');
 
 let vapidKeysInitialized = false;
+let isInitializing = false;
 
 async function initVapidKeys() {
     if (vapidKeysInitialized) return;
+    if (isInitializing) {
+        // Wait for current initialization to complete
+        while (isInitializing) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return;
+    }
 
+    isInitializing = true;
     try {
         const vapidKeysSetting = await queryOne('SELECT value FROM system_settings WHERE "key" = $1', ['vapid_keys']);
         if (vapidKeysSetting) {
@@ -22,6 +31,8 @@ async function initVapidKeys() {
         }
     } catch (error) {
         console.error('Error initializing VAPID keys:', error);
+    } finally {
+        isInitializing = false;
     }
 }
 

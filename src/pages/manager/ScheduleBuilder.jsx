@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { useStoreFilter } from '../../context/StoreFilterContext';
-import { employeesAPI } from '../../utils/api';
-import { DAYS_OF_WEEK, DAY_LABELS, ROLES, getWeekStart, addDays, formatDate } from '../../data/mockData';
+import { employeesAPI, requestsAPI } from '../../utils/api';
+import { DAYS_OF_WEEK, DAY_LABELS, ROLES, POSITIONS, getWeekStart, addDays, formatDate } from '../../data/mockData';
 import Card from '../../components/ui/Card';
 import './ScheduleBuilder.css';
 
@@ -16,11 +16,12 @@ function ScheduleBuilder() {
     const [shifts, setShifts] = useState([]);
     const [allEmployees, setAllEmployees] = useState([]); // Store all fetched employees
     const [isPublished, setIsPublished] = useState(false); // Track if current schedule is published
+    const [isLocked, setIsLocked] = useState(false); // Track if schedule is locked for editing
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [showCalendarView, setShowCalendarView] = useState(false);
     const [editingShift, setEditingShift] = useState(null);
+    const [approvedTimeOffs, setApprovedTimeOffs] = useState([]); // approved pre-publish time-off for this week
 
     // Load existing schedule when weekStart changes
     useEffect(() => {
@@ -31,10 +32,12 @@ function ScheduleBuilder() {
                 // Found a saved schedule for this week
                 setShifts(savedSchedules[0].shifts);
                 setIsPublished(savedSchedules[0].published);
+                setIsLocked(savedSchedules[0].published); // Lock it by default if published
             } else {
                 // No saved schedule
                 setShifts([]);
                 setIsPublished(false);
+                setIsLocked(false);
             }
         };
         loadSchedule();
@@ -43,6 +46,27 @@ function ScheduleBuilder() {
     useEffect(() => {
         fetchEmployees();
     }, [effectiveStoreId]);
+
+    // Fetch approved time-off requests for the current week
+    useEffect(() => {
+        if (!effectiveStoreId) return;
+        requestsAPI.getAll({ storeId: effectiveStoreId })
+            .then(r => {
+                if (r?.success) {
+                    // Filter to only approved requests that fall in this week
+                    const d0 = new Date(weekStart + 'T00:00:00');
+                    const d6 = new Date(weekStart + 'T00:00:00');
+                    d6.setDate(d6.getDate() + 6);
+                    const relevant = (r.requests || []).filter(req => {
+                        if (req.status !== 'approved') return false;
+                        const dt = new Date((req.requestedDate || req.startDate) + 'T00:00:00');
+                        return dt >= d0 && dt <= d6;
+                    });
+                    setApprovedTimeOffs(relevant);
+                }
+            })
+            .catch(() => { });
+    }, [weekStart, effectiveStoreId]);
 
     const fetchEmployees = async () => {
         if (!effectiveStoreId) return;
@@ -78,10 +102,11 @@ function ScheduleBuilder() {
         if (filteredEmployees.length > 0 && shifts.length === 0) {
             const savedSchedules = getSchedules(effectiveStoreId, weekStart);
             if (!savedSchedules || savedSchedules.length === 0) {
-                autoFillFromDefaults();
+                // If there's truly no saved schedule, fill from defaults quietly during initial load
+                autoFillFromDefaults(true);
             }
         }
-    }, [filteredEmployees, weekStart]); // Re-run when filtered list changes or week changes
+    }, [filteredEmployees, weekStart, shifts.length]); // Re-run when filtered list changes or week changes
 
     const handlePrevWeek = () => setWeekStart(addDays(weekStart, -7));
     const handleNextWeek = () => setWeekStart(addDays(weekStart, 7));
@@ -89,24 +114,40 @@ function ScheduleBuilder() {
     const getShift = (employeeId, day) => shifts.find(s => s.employeeId === employeeId && s.day === day);
 
     const addShift = (employeeId, day, start = '09:00', end = '17:00', role = '') => {
+        if (isLocked) return;
         if (getShift(employeeId, day)) return;
         const emp = allEmployees.find(e => e.id === employeeId); // Look up in all employees just in case
-        const defaultRole = role || emp?.position || 'Cashier';
+
+        // Find default role, considering FOH/BOH constraints
+        let defaultRole = role;
+        if (!defaultRole) {
+            const posObj = POSITIONS.find(p => p.value === emp?.position);
+            if (posObj && posObj.category !== 'ALL') {
+                const firstValidRole = ROLES.find(r => r.category === posObj.category);
+                defaultRole = firstValidRole ? firstValidRole.value : '';
+            } else {
+                defaultRole = ROLES[0].value;
+            }
+        }
+
         setShifts(prev => [...prev, { employeeId, day, start, end, role: defaultRole }]);
     };
 
     const updateShift = (employeeId, day, field, value) => {
+        if (isLocked) return;
         setShifts(prev => prev.map(s =>
             s.employeeId === employeeId && s.day === day ? { ...s, [field]: value } : s
         ));
     };
 
     const removeShift = (employeeId, day) => {
+        if (isLocked) return;
         setShifts(prev => prev.filter(s => !(s.employeeId === employeeId && s.day === day)));
         setEditingShift(null);
     };
 
     const toggleShift = (employeeId, day) => {
+        if (isLocked) return;
         if (editingShift?.employeeId === employeeId && editingShift?.day === day) return;
 
         const existing = getShift(employeeId, day);
@@ -124,45 +165,112 @@ function ScheduleBuilder() {
     };
 
     const handleDoubleClick = (employeeId, day) => {
+        if (isLocked) return;
         const shift = getShift(employeeId, day);
         if (shift) {
             setEditingShift({ employeeId, day });
         }
     };
 
-    const autoFillFromDefaults = () => {
+    const autoFillFromDefaults = (silent = false) => {
         const newShifts = [];
+
+        // Build a quick lookup: employeeId + dayOfWeek → approved time-off
+        const timeOffByEmpDay = {};
+        approvedTimeOffs.forEach(req => {
+            const reqDate = new Date((req.requestedDate || req.startDate) + 'T00:00:00');
+            // Find which day of week (0=Sun..6=Sat). DAYS_OF_WEEK is Mon-indexed.
+            const jsDay = reqDate.getDay();
+            const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][jsDay];
+            const key = `${req.employeeId}_${dayName}`;
+            timeOffByEmpDay[key] = req;
+        });
 
         // ONLY use filteredEmployees for autofill
         filteredEmployees.forEach(employee => {
             if (employee.defaultShifts && Array.isArray(employee.defaultShifts)) {
                 employee.defaultShifts.forEach(defaultShift => {
                     const day = defaultShift.dayOfWeek || defaultShift.day;
-                    const start = defaultShift.startTime || defaultShift.start;
-                    const end = defaultShift.endTime || defaultShift.end;
-                    const role = defaultShift.primaryRole || employee.position || 'Cashier';
-
-                    if (!defaultShift.isOff && start && end) {
-                        newShifts.push({ employeeId: employee.id, day, start, end, role });
+                    let start = defaultShift.startTime || defaultShift.start;
+                    let end = defaultShift.endTime || defaultShift.end;
+                    let role = defaultShift.primaryRole;
+                    if (!role) {
+                        const posObj = POSITIONS.find(p => p.value === employee.position);
+                        if (posObj && posObj.category !== 'ALL') {
+                            const firstValidRole = ROLES.find(r => r.category === posObj.category);
+                            role = firstValidRole ? firstValidRole.value : '';
+                        } else {
+                            role = ROLES[0].value;
+                        }
                     }
+
+                    if (defaultShift.isOff || !start || !end) return;
+
+                    // Check for approved time-off for this employee on this day
+                    const key = `${employee.id}_${day}`;
+                    const timeOff = timeOffByEmpDay[key];
+
+                    if (timeOff) {
+                        if (timeOff.requestScope === 'full_day') {
+                            // Skip this day entirely
+                            return;
+                        } else if (timeOff.requestScope === 'partial' && timeOff.partialStartTime && timeOff.partialEndTime) {
+                            // Trim shift to not overlap the partial off window
+                            // If shift ends before partial off starts, keep it unchanged
+                            // If shift starts after partial off ends, keep it unchanged
+                            // Otherwise, clip: end the shift at partial off start, OR start after partial off end
+                            const shiftStartM = timeToMinutes(start);
+                            const shiftEndM = timeToMinutes(end);
+                            const offStartM = timeToMinutes(timeOff.partialStartTime);
+                            const offEndM = timeToMinutes(timeOff.partialEndTime);
+
+                            if (shiftEndM <= offStartM || shiftStartM >= offEndM) {
+                                // No overlap — include shift as is
+                            } else if (shiftStartM < offStartM) {
+                                // Shift starts before off period, trim end
+                                end = minutesToTime(offStartM);
+                                if (timeToMinutes(end) - shiftStartM < 30) return; // too short, skip
+                            } else {
+                                // Shift starts inside off period, push start
+                                start = minutesToTime(offEndM);
+                                if (timeToMinutes(end) - timeToMinutes(start) < 30) return; // too short, skip
+                            }
+                        }
+                    }
+
+                    newShifts.push({ employeeId: employee.id, day, start, end, role });
                 });
             }
         });
 
         if (newShifts.length > 0) {
             setShifts(newShifts);
-            setMessage({ type: 'success', text: `Loaded ${newShifts.length} default shifts` });
-            setTimeout(() => setMessage(null), 3000);
+            if (!isLocked && !silent) {
+                const skippedCount = approvedTimeOffs.length;
+                const msg = skippedCount > 0
+                    ? `Loaded ${newShifts.length} shifts (${skippedCount} time-off requests applied)`
+                    : `Loaded ${newShifts.length} default shifts`;
+                setMessage({ type: 'success', text: msg });
+                setTimeout(() => setMessage(null), 4000);
+            }
         }
     };
 
+    const minutesToTime = (m) => {
+        const h = Math.floor(m / 60);
+        const min = m % 60;
+        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    };
+
     const clearAllShifts = () => {
+        if (isLocked) return;
         setShifts([]);
         setMessage({ type: 'info', text: 'All shifts cleared' });
         setTimeout(() => setMessage(null), 3000);
     };
 
     const selectAllShifts = () => {
+        if (isLocked) return;
         autoFillFromDefaults();
     };
 
@@ -178,6 +286,7 @@ function ScheduleBuilder() {
             await saveSchedule(scheduleData);
             setMessage({ type: 'success', text: 'Schedule saved!' });
             setIsPublished(false); // Update local state
+            setIsLocked(false);
         } catch (error) {
             console.error('Failed to save schedule:', error);
             setMessage({ type: 'error', text: 'Failed to save schedule' });
@@ -199,6 +308,7 @@ function ScheduleBuilder() {
             await saveSchedule(scheduleData);
             setMessage({ type: 'success', text: 'Schedule published!' });
             setIsPublished(true); // Update local state
+            setIsLocked(true); // Automatically lock upon publish
         } catch (error) {
             console.error('Failed to publish schedule:', error);
             setMessage({ type: 'error', text: 'Failed to publish schedule' });
@@ -288,24 +398,33 @@ function ScheduleBuilder() {
             <div className="page-header flex justify-between items-center">
                 <div>
                     <h1 className="page-title">Schedule Builder</h1>
-                    <p className="page-subtitle">Click to toggle shifts • Double-click to edit times</p>
+                    <p className="page-subtitle">
+                        {isLocked
+                            ? "🔒 This schedule is locked to prevent accidental edits while tracking live time-off changes."
+                            : "Click to toggle shifts • Double-click to edit times"}
+                    </p>
                 </div>
                 <div className="flex gap-md flex-wrap">
-                    <button className="btn btn-secondary" onClick={selectAllShifts}>
-                        ✅ Select All
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => setShowCalendarView(true)}>
-                        📊 Timeline
-                    </button>
-                    <button className="btn btn-secondary" onClick={clearAllShifts}>
-                        🗑️ Clear
-                    </button>
-                    <button className="btn btn-secondary" onClick={handleSave} disabled={saving}>
-                        💾 Save
-                    </button>
-                    <button className="btn btn-primary" onClick={handlePublish} disabled={saving}>
-                        📤 Publish
-                    </button>
+                    {isLocked ? (
+                        <button className="btn btn-warning" onClick={() => setIsLocked(false)}>
+                            🔓 Unlock to Edit
+                        </button>
+                    ) : (
+                        <>
+                            <button className="btn btn-secondary" onClick={selectAllShifts}>
+                                ✅ Select All
+                            </button>
+                            <button className="btn btn-secondary" onClick={clearAllShifts}>
+                                🗑️ Clear
+                            </button>
+                            <button className="btn btn-secondary" onClick={handleSave} disabled={saving}>
+                                💾 Save
+                            </button>
+                            <button className="btn btn-primary" onClick={handlePublish} disabled={saving}>
+                                📤 Publish
+                            </button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -316,11 +435,15 @@ function ScheduleBuilder() {
             <Card>
                 <div className="week-navigation">
                     <button className="btn btn-secondary btn-icon" onClick={handlePrevWeek}>←</button>
-                    <div className="week-info">
+                    <div className="week-info flex items-center justify-center">
                         <span className="week-label">
                             {formatDate(weekStart)} - {formatDate(addDays(weekStart, 6))}
                         </span>
-                        {isPublished && <span className="status-badge status-active ml-md">Published</span>}
+                        {isPublished && (
+                            <span className={`status-badge ml-md ${isLocked ? 'status-danger' : 'status-active'}`}>
+                                {isLocked ? '🔒 Locked (Published)' : 'Published (Unlocked)'}
+                            </span>
+                        )}
                     </div>
                     <button className="btn btn-secondary btn-icon" onClick={handleNextWeek}>→</button>
                 </div>
@@ -358,7 +481,9 @@ function ScheduleBuilder() {
                                     <div className="avatar avatar-sm">{employee.avatar}</div>
                                     <div className="employee-info">
                                         <span className="employee-name">{employee.name}</span>
-                                        <span className="employee-position">{employee.position}</span>
+                                        <span className="employee-position">
+                                            {POSITIONS.find(p => p.value === employee.position)?.label || employee.position}
+                                        </span>
                                     </div>
                                 </div>
 
@@ -369,7 +494,8 @@ function ScheduleBuilder() {
                                     return (
                                         <div
                                             key={day}
-                                            className={`schedule-cell shift-cell ${shift ? 'has-shift' : 'no-shift'}`}
+                                            className={`schedule-cell shift-cell ${shift ? 'has-shift' : 'no-shift'} ${isLocked ? 'locked-cell disabled' : ''}`}
+                                            style={isLocked ? { cursor: 'not-allowed', opacity: 0.85 } : {}}
                                             onClick={() => toggleShift(employee.id, day)}
                                             onDoubleClick={() => handleDoubleClick(employee.id, day)}
                                         >
@@ -390,7 +516,11 @@ function ScheduleBuilder() {
                                                             value={shift.role}
                                                             onChange={(e) => updateShift(employee.id, day, 'role', e.target.value)}
                                                         >
-                                                            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                                            {ROLES.filter(r => {
+                                                                const posObj = POSITIONS.find(p => p.value === employee.position);
+                                                                if (!posObj || posObj.category === 'ALL') return true;
+                                                                return r.category === posObj.category;
+                                                            }).map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                                                         </select>
                                                         <button className="btn-sm btn-success" onClick={(e) => { e.stopPropagation(); setEditingShift(null); }}>✓ Done</button>
                                                     </div>
@@ -425,67 +555,6 @@ function ScheduleBuilder() {
                     <div className="legend-item">💡 Double-click to edit times</div>
                 </div>
             </Card>
-
-            {/* Timeline View Modal */}
-            {showCalendarView && (
-                <div className="modal-overlay" onClick={() => setShowCalendarView(false)}>
-                    <div className="modal-content timeline-modal" onClick={e => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h2>📊 Daily Timeline</h2>
-                            <button className="modal-close" onClick={() => setShowCalendarView(false)}>×</button>
-                        </div>
-                        <div className="modal-body">
-                            {shifts.length === 0 ? (
-                                <div className="empty-state">
-                                    <p>No shifts scheduled. Add shifts first!</p>
-                                </div>
-                            ) : (
-                                <div className="timeline-days">
-                                    {DAYS_OF_WEEK.map(day => {
-                                        const dayShifts = shifts.filter(s => s.day === day);
-                                        if (dayShifts.length === 0) return null;
-
-                                        const minTime = Math.min(...dayShifts.map(s => timeToMinutes(s.start)));
-                                        const maxTime = Math.max(...dayShifts.map(s => timeToMinutes(s.end)));
-                                        const timeRange = maxTime - minTime || 1;
-
-                                        return (
-                                            <div key={day} className="timeline-day">
-                                                <div className="timeline-day-label">{DAY_LABELS[day]}</div>
-                                                <div className="timeline-content">
-                                                    <div className="timeline-axis">
-                                                        <span>{formatTime(`${Math.floor(minTime / 60).toString().padStart(2, '0')}:00`)}</span>
-                                                        <span>{formatTime(`${Math.floor(maxTime / 60).toString().padStart(2, '0')}:00`)}</span>
-                                                    </div>
-                                                    <div className="timeline-bars">
-                                                        {dayShifts.map((shift, idx) => {
-                                                            const emp = allEmployees.find(e => e.id === shift.employeeId);
-                                                            const startPct = ((timeToMinutes(shift.start) - minTime) / timeRange) * 100;
-                                                            const widthPct = ((timeToMinutes(shift.end) - timeToMinutes(shift.start)) / timeRange) * 100;
-
-                                                            return (
-                                                                <div
-                                                                    key={idx}
-                                                                    className="timeline-bar"
-                                                                    style={{ left: `${startPct}%`, width: `${Math.max(widthPct, 10)}%` }}
-                                                                    title={`${emp?.name}: ${shift.start}-${shift.end}`}
-                                                                >
-                                                                    <span className="bar-name">{emp?.name?.split(' ')[0]}</span>
-                                                                    <span className="bar-role">{shift.role}</span>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

@@ -1,12 +1,16 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { db, query, queryOne, run } = require('../db');
+const { pool, query, queryOne, run } = require('../db');
 const { publishUpdate, broadcastUpdate } = require('../utils/redis');
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'shiftsync-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('CRITICAL: JWT_SECRET environment variable is not defined.');
+    process.exit(1);
+}
 const SALT_ROUNDS = 10;
 
 // Middleware to authenticate JWT token
@@ -106,23 +110,25 @@ router.get('/', authenticateToken, async (req, res) => {
         const isManager = req.user.role === 'manager';
         const filterStoreId = req.query.storeId; // Admin can filter by store
 
-        let employeesQuery = 'SELECT * FROM employees';
+        let employeesQuery = 'SELECT e.*, p.category as position_category FROM employees e LEFT JOIN positions p ON e.position = p.name';
         let queryParams = [];
         let conditions = [];
         let paramCount = 1;
 
-        if (isManager && !isAdmin) {
-            // Get the manager's store_id from DB
-            const mgr = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
-            const mgrStoreId = mgr?.store_id;
-            // Managers see only employees in their store (including themselves)
-            conditions.push(`store_id = $${paramCount++}`);
-            queryParams.push(mgrStoreId);
-            // Also filter out admins
-            conditions.push(`role != 'admin'`);
+        if (!isAdmin) {
+            // Both Managers AND regular Employees see only employees in their store
+            const me = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            const myStoreId = me?.store_id;
+            conditions.push(`e.store_id = $${paramCount++}`);
+            queryParams.push(myStoreId);
+
+            if (isManager) {
+                // filter out admins for managers
+                conditions.push(`e.role != 'admin'`);
+            }
         } else if (isAdmin && filterStoreId) {
             // Admin filtering by a specific store
-            conditions.push(`store_id = $${paramCount++}`);
+            conditions.push(`e.store_id = $${paramCount++}`);
             queryParams.push(filterStoreId);
         }
 
@@ -130,18 +136,21 @@ router.get('/', authenticateToken, async (req, res) => {
             employeesQuery += ' WHERE ' + conditions.join(' AND ');
         }
 
-        employeesQuery += ' ORDER BY name';
+        employeesQuery += ' ORDER BY e.name';
         const employees = await query(employeesQuery, queryParams);
 
-        const result = await Promise.all(employees.map(async emp => {
-            const shifts = await query(
-                'SELECT * FROM employee_default_shifts WHERE employee_id = $1',
-                [emp.id]
-            );
-            const roles = await query(
-                'SELECT role_name FROM employee_additional_roles WHERE employee_id = $1',
-                [emp.id]
-            );
+        // Bulk-fetch shifts and roles for all employees at once (avoids N+1)
+        const employeeIds = employees.map(e => e.id);
+        const allShifts = employeeIds.length > 0
+            ? await query('SELECT * FROM employee_default_shifts WHERE employee_id = ANY($1)', [employeeIds])
+            : [];
+        const allRoles = employeeIds.length > 0
+            ? await query('SELECT employee_id, role_name FROM employee_additional_roles WHERE employee_id = ANY($1)', [employeeIds])
+            : [];
+
+        const result = employees.map(emp => {
+            const empShifts = allShifts.filter(s => s.employee_id === emp.id);
+            const empRoles = allRoles.filter(r => r.employee_id === emp.id);
 
             return {
                 id: emp.id,
@@ -151,6 +160,7 @@ router.get('/', authenticateToken, async (req, res) => {
                 phone: emp.phone,
                 role: emp.role,
                 position: emp.position,
+                positionCategory: emp.position_category,
                 storeId: emp.store_id,
                 avatar: emp.avatar,
                 hourlyRate: emp.hourly_rate,
@@ -158,16 +168,18 @@ router.get('/', authenticateToken, async (req, res) => {
                 status: emp.status,
                 hireDate: emp.hire_date,
                 createdAt: emp.created_at,
-                defaultShifts: shifts.map(s => ({
+                defaultShifts: empShifts.map(s => ({
                     dayOfWeek: s.day_of_week,
                     startTime: s.start_time,
                     endTime: s.end_time,
                     primaryRole: s.primary_role,
                     isOff: Boolean(s.is_off)
                 })),
-                additionalRoles: roles.map(r => r.role_name)
+                additionalRoles: empRoles.map(r => r.role_name)
             };
-        }));
+        });
+
+        console.log('Sending employees payload. First employee:', result[0]);
 
         res.json({
             success: true,
@@ -249,7 +261,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // POST /api/employees - Create new employee or manager
 // Admin can create managers, Manager can only create employees
 router.post('/', authenticateToken, requireManager, async (req, res) => {
+    const client = await pool.connect();
+
     try {
+        await client.query('BEGIN');
+
         const {
             username,
             password,
@@ -266,6 +282,8 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
 
         // Validate required fields
         if (!username || !password || !name || !email) {
+            await client.query('ROLLBACK');
+            client.release();
             return res.status(400).json({
                 success: false,
                 error: 'Username, password, name, and email are required'
@@ -276,6 +294,8 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         let newRole = 'employee';
         if (requestedRole === 'manager') {
             if (req.user.role !== 'admin') {
+                await client.query('ROLLBACK');
+                client.release();
                 return res.status(403).json({
                     success: false,
                     error: 'Only admins can create manager accounts'
@@ -285,12 +305,14 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         }
 
         // Check if username or email already exists
-        const existing = await queryOne(
+        const existingRes = await client.query(
             'SELECT id FROM employees WHERE username = $1 OR email = $2',
             [username, email]
         );
 
-        if (existing) {
+        if (existingRes.rows[0]) {
+            await client.query('ROLLBACK');
+            client.release();
             return res.status(400).json({
                 success: false,
                 error: 'Username or email already exists'
@@ -304,16 +326,14 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         const avatar = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
         // Determine store_id
-        // Managers: force to their own store. Admins: use provided storeId or default.
         let assignedStoreId = req.body.storeId || 'store-001';
         if (req.user.role === 'manager') {
-            const mgr = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
-            assignedStoreId = mgr?.store_id || 'store-001';
+            const mgrRes = await client.query('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            assignedStoreId = mgrRes.rows[0]?.store_id || 'store-001';
         }
 
         // Insert employee
-        // Use RETURNING id to get the new ID
-        const result = await queryOne(`
+        const insertRes = await client.query(`
             INSERT INTO employees (
                 username, password_hash, name, email, phone, 
                 role, position, store_id, avatar, hourly_rate, max_hours_per_week
@@ -333,12 +353,12 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
             maxHoursPerWeek || 40
         ]);
 
-        const employeeId = result.id;
+        const employeeId = insertRes.rows[0].id;
 
         // Insert default shifts
         if (defaultShifts && Array.isArray(defaultShifts)) {
             for (const shift of defaultShifts) {
-                await run(`
+                await client.query(`
                     INSERT INTO employee_default_shifts 
                     (employee_id, day_of_week, start_time, end_time, primary_role, is_off)
                     VALUES ($1, $2, $3, $4, $5, $6)
@@ -357,7 +377,7 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         if (additionalRoles && Array.isArray(additionalRoles)) {
             for (const role of additionalRoles) {
                 if (role) {
-                    await run(`
+                    await client.query(`
                         INSERT INTO employee_additional_roles (employee_id, role_name)
                         VALUES ($1, $2)
                     `, [employeeId, role]);
@@ -365,7 +385,9 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
             }
         }
 
-        // Fetch complete employee data
+        await client.query('COMMIT');
+
+        // Fetch complete employee data (outside transaction, read-only)
         const newEmployee = await queryOne('SELECT * FROM employees WHERE id = $1', [employeeId]);
         const shifts = await query('SELECT * FROM employee_default_shifts WHERE employee_id = $1', [employeeId]);
         const roles = await query('SELECT role_name FROM employee_additional_roles WHERE employee_id = $1', [employeeId]);
@@ -396,7 +418,7 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         };
 
         // WebSocket Refresh
-        broadcastUpdate('data_refresh'); // Admin/Manager views might need this
+        broadcastUpdate('data_refresh');
 
         res.status(201).json({
             success: true,
@@ -404,17 +426,24 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
         });
 
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('Create employee error:', error);
         res.status(500).json({
             success: false,
             error: 'Internal server error'
         });
+    } finally {
+        client.release();
     }
 });
 
 // PUT /api/employees/:id - Update employee (Manager only)
 router.put('/:id', authenticateToken, requireManager, async (req, res) => {
+    const client = await pool.connect();
+
     try {
+        await client.query('BEGIN');
+
         const { id } = req.params;
         const {
             username,
@@ -432,9 +461,12 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
         } = req.body;
 
         // Check if employee exists
-        const existing = await queryOne('SELECT * FROM employees WHERE id = $1', [id]);
+        const existingRes = await client.query('SELECT * FROM employees WHERE id = $1', [id]);
+        const existing = existingRes.rows[0];
 
         if (!existing) {
+            await client.query('ROLLBACK');
+            client.release();
             return res.status(404).json({
                 success: false,
                 error: 'Employee not found'
@@ -443,8 +475,10 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
 
         // Managers can only edit employees in their own store
         if (req.user.role === 'manager') {
-            const mgr = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
-            if (existing.store_id !== mgr?.store_id) {
+            const mgrRes = await client.query('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            if (existing.store_id !== mgrRes.rows[0]?.store_id) {
+                await client.query('ROLLBACK');
+                client.release();
                 return res.status(403).json({
                     success: false,
                     error: 'You can only edit employees in your own store'
@@ -454,12 +488,14 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
 
         // Check for duplicate username/email (excluding current employee)
         if (username || email) {
-            const duplicate = await queryOne(
+            const dupRes = await client.query(
                 'SELECT id FROM employees WHERE (username = $1 OR email = $2) AND id != $3',
                 [username || '', email || '', id]
             );
 
-            if (duplicate) {
+            if (dupRes.rows[0]) {
+                await client.query('ROLLBACK');
+                client.release();
                 return res.status(400).json({
                     success: false,
                     error: 'Username or email already exists'
@@ -521,15 +557,15 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
         if (updates.length > 0) {
             updates.push(`updated_at = CURRENT_TIMESTAMP`);
             values.push(id);
-            await run(`UPDATE employees SET ${updates.join(', ')} WHERE id = $${paramCount}`, values);
+            await client.query(`UPDATE employees SET ${updates.join(', ')} WHERE id = $${paramCount}`, values);
         }
 
         // Update default shifts
         if (defaultShifts && Array.isArray(defaultShifts)) {
-            await run('DELETE FROM employee_default_shifts WHERE employee_id = $1', [id]);
+            await client.query('DELETE FROM employee_default_shifts WHERE employee_id = $1', [id]);
 
             for (const shift of defaultShifts) {
-                await run(`
+                await client.query(`
                     INSERT INTO employee_default_shifts 
                     (employee_id, day_of_week, start_time, end_time, primary_role, is_off)
                     VALUES ($1, $2, $3, $4, $5, $6)
@@ -546,11 +582,11 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
 
         // Update additional roles
         if (additionalRoles && Array.isArray(additionalRoles)) {
-            await run('DELETE FROM employee_additional_roles WHERE employee_id = $1', [id]);
+            await client.query('DELETE FROM employee_additional_roles WHERE employee_id = $1', [id]);
 
             for (const role of additionalRoles) {
                 if (role) {
-                    await run(`
+                    await client.query(`
                         INSERT INTO employee_additional_roles (employee_id, role_name)
                         VALUES ($1, $2)
                     `, [id, role]);
@@ -558,7 +594,9 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
             }
         }
 
-        // Fetch updated employee
+        await client.query('COMMIT');
+
+        // Fetch updated employee (outside transaction, read-only)
         const emp = await queryOne('SELECT * FROM employees WHERE id = $1', [id]);
         const shifts = await query('SELECT * FROM employee_default_shifts WHERE employee_id = $1', [id]);
         const roles = await query('SELECT role_name FROM employee_additional_roles WHERE employee_id = $1', [id]);
@@ -590,7 +628,7 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
 
         // WebSocket Refresh
         publishUpdate(id, 'data_refresh');
-        broadcastUpdate('data_refresh'); // For managers
+        broadcastUpdate('data_refresh');
 
         res.json({
             success: true,
@@ -598,11 +636,14 @@ router.put('/:id', authenticateToken, requireManager, async (req, res) => {
         });
 
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('Update employee error:', error);
         res.status(500).json({
             success: false,
             error: 'Internal server error'
         });
+    } finally {
+        client.release();
     }
 });
 

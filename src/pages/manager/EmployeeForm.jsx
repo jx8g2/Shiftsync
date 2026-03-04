@@ -27,10 +27,18 @@ function EmployeeForm() {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
-    const [position, setPosition] = useState('Cashier');
+    const [position, setPosition] = useState('front-house');
     const [hourlyRate, setHourlyRate] = useState('15.00');
     const [maxHoursPerWeek, setMaxHoursPerWeek] = useState('40');
     const [status, setStatus] = useState('active');
+
+    // Get available roles based on current position selection
+    const availableRoles = ROLES.filter(r => {
+        if (!position) return true;
+        const posObj = POSITIONS.find(p => p.value === position);
+        if (!posObj || posObj.category === 'ALL') return true;
+        return r.category === posObj.category;
+    });
 
     // Default shifts for each day
     const [defaultShifts, setDefaultShifts] = useState(
@@ -71,7 +79,7 @@ function EmployeeForm() {
                 setName(emp.name || '');
                 setEmail(emp.email || '');
                 setPhone(emp.phone || '');
-                setPosition(emp.position || 'Cashier');
+                setPosition(emp.position || 'front-house');
                 setHourlyRate(emp.hourlyRate?.toString() || '15.00');
                 setMaxHoursPerWeek(emp.maxHoursPerWeek?.toString() || '40');
                 setStatus(emp.status || 'active');
@@ -382,7 +390,7 @@ function EmployeeForm() {
                                 onChange={(e) => setPosition(e.target.value)}
                             >
                                 {POSITIONS.map(pos => (
-                                    <option key={pos} value={pos}>{pos}</option>
+                                    <option key={pos.value} value={pos.value}>{pos.label}</option>
                                 ))}
                             </select>
                         </div>
@@ -490,8 +498,8 @@ function EmployeeForm() {
                                     disabled={shift.isOff}
                                 >
                                     <option value="">Select role...</option>
-                                    {ROLES.map(role => (
-                                        <option key={role} value={role}>{role}</option>
+                                    {availableRoles.map(role => (
+                                        <option key={role.value} value={role.value}>{role.label}</option>
                                     ))}
                                 </select>
                             </div>
@@ -517,8 +525,8 @@ function EmployeeForm() {
                                 onChange={(e) => setNewRole(e.target.value)}
                             >
                                 <option value="">Select a role to add...</option>
-                                {ROLES.filter(r => !additionalRoles.includes(r)).map(role => (
-                                    <option key={role} value={role}>{role}</option>
+                                {availableRoles.filter(r => !additionalRoles.includes(r.value)).map(role => (
+                                    <option key={role.value} value={role.value}>{role.label}</option>
                                 ))}
                             </select>
                             <button

@@ -3,48 +3,92 @@ import { useAuth } from '../../context/AuthContext';
 import { backupsAPI } from '../../utils/api';
 import './BackupSettings.css';
 
+/**
+ * Build a cron expression from a numeric value + unit.
+ *  - unit 'minutes': every N minutes  => `*\/N * * * *`
+ *  - unit 'hours':   every N hours     => `0 *\/N * * *`  (special-case 24h = `0 0 * * *`)
+ */
+const buildCron = (value, unit) => {
+    const v = parseInt(value, 10);
+    if (isNaN(v) || v <= 0) return '0 0 * * *';
+
+    if (unit === 'minutes') {
+        // node-cron supports 1-59 minutes; cap at 59
+        const mins = Math.min(v, 59);
+        return `*/${mins} * * * *`;
+    }
+
+    // hours
+    if (v === 24) return '0 0 * * *';
+    if (v > 24) {
+        const days = Math.floor(v / 24) || 1;
+        return `0 0 */${days} * *`;
+    }
+    return `0 */${v} * * *`;
+};
+
+/**
+ * Parse a stored cron expression back into { value, unit }.
+ */
+const parseCron = (cronStr) => {
+    if (!cronStr) return { value: 24, unit: 'hours' };
+
+    const parts = cronStr.split(' ');
+    if (parts.length < 5) return { value: 24, unit: 'hours' };
+
+    const [minutePart, hourPart, dayPart] = parts;
+
+    // Every-N-minutes pattern: `*/N * * * *`
+    if (minutePart.startsWith('*/') && hourPart === '*') {
+        return { value: parseInt(minutePart.replace('*/', ''), 10), unit: 'minutes' };
+    }
+
+    // Daily at midnight: `0 0 * * *`
+    if (minutePart === '0' && hourPart === '0' && dayPart === '*') {
+        return { value: 24, unit: 'hours' };
+    }
+
+    // Every-N-hours: `0 */N * * *`
+    if (minutePart === '0' && hourPart.startsWith('*/')) {
+        return { value: parseInt(hourPart.replace('*/', ''), 10), unit: 'hours' };
+    }
+
+    // Every-N-days: `0 0 */N * *`
+    if (minutePart === '0' && hourPart === '0' && dayPart.startsWith('*/')) {
+        return { value: parseInt(dayPart.replace('*/', ''), 10) * 24, unit: 'hours' };
+    }
+
+    return { value: 24, unit: 'hours' };
+};
+
+/** Human-readable label for the current schedule */
+const describeSchedule = (value, unit) => {
+    const v = parseInt(value, 10);
+    if (!v || v <= 0) return 'Invalid schedule';
+    if (unit === 'minutes') return `every ${v} minute${v === 1 ? '' : 's'}`;
+    if (v === 24) return 'every 24 hours (daily)';
+    if (v > 24) {
+        const days = Math.floor(v / 24);
+        return `every ${days} day${days === 1 ? '' : 's'}`;
+    }
+    return `every ${v} hour${v === 1 ? '' : 's'}`;
+};
+
 const BackupSettings = () => {
     const { user } = useAuth();
     const [backups, setBackups] = useState([]);
-    const [schedule, setSchedule] = useState('');
-    const [hoursInput, setHoursInput] = useState(24);
+    const [schedule, setSchedule] = useState('0 0 * * *'); // raw cron
+    const [intervalValue, setIntervalValue] = useState(24);
+    const [intervalUnit, setIntervalUnit] = useState('hours');
+    const [maxCount, setMaxCount] = useState(7);
     const [loading, setLoading] = useState(true);
+    const [creating, setCreating] = useState(false); // separate from loading
     const [restoring, setRestoring] = useState(false);
     const [message, setMessage] = useState(null);
 
-    const cronToHours = (cronStr) => {
-        if (!cronStr) return 24;
-        if (cronStr === '0 0 * * *') return 24;
-
-        const parts = cronStr.split(' ');
-        if (parts.length >= 3) {
-            const hourPart = parts[1];
-            const dayPart = parts[2];
-
-            if (hourPart.startsWith('*/')) {
-                return parseInt(hourPart.replace('*/', ''), 10);
-            } else if (dayPart.startsWith('*/') && hourPart === '0') {
-                return parseInt(dayPart.replace('*/', ''), 10) * 24;
-            }
-        }
-        return 24; // fallback
-    };
-
-    const hoursToCron = (hours) => {
-        const h = parseInt(hours, 10);
-        if (isNaN(h) || h <= 0) return '0 0 * * *';
-        if (h === 24) return '0 0 * * *';
-        if (h < 24) return `0 */${h} * * *`;
-
-        if (h > 24) {
-            const days = Math.floor(h / 24) || 1;
-            return `0 0 */${days} * *`;
-        }
-        return '0 0 * * *'; // fallback
-    };
-
     useEffect(() => {
         fetchConfig();
+        fetchMaxCount();
         fetchBackups();
     }, []);
 
@@ -52,11 +96,23 @@ const BackupSettings = () => {
         try {
             const data = await backupsAPI.getConfig();
             if (data.success) {
-                setSchedule(data.schedule);
-                setHoursInput(cronToHours(data.schedule));
+                const cronStr = data.schedule || '0 0 * * *';
+                setSchedule(cronStr);
+                const { value, unit } = parseCron(cronStr);
+                setIntervalValue(value);
+                setIntervalUnit(unit);
             }
         } catch (error) {
-            console.error('Failed to fetch config:', error);
+            console.error('Failed to fetch backup config:', error);
+        }
+    };
+
+    const fetchMaxCount = async () => {
+        try {
+            const data = await backupsAPI.getMaxCount();
+            if (data.success) setMaxCount(data.maxCount);
+        } catch (error) {
+            console.error('Failed to fetch max backup count:', error);
         }
     };
 
@@ -76,39 +132,59 @@ const BackupSettings = () => {
 
     const handleScheduleChange = async (e) => {
         e.preventDefault();
-
-        const newCron = hoursToCron(hoursInput);
-
+        const newCron = buildCron(intervalValue, intervalUnit);
         try {
             const res = await backupsAPI.updateConfig(newCron);
             if (res.success) {
                 setSchedule(newCron);
-                setHoursInput(cronToHours(newCron)); // Normalize input
-                showMessage(`Schedule updated to run every ${cronToHours(newCron)} hours`, 'success');
+                showMessage(
+                    `Schedule saved — backups will run ${describeSchedule(intervalValue, intervalUnit)}`,
+                    'success'
+                );
+            } else {
+                showMessage(res.error || 'Failed to update schedule', 'error');
             }
         } catch (error) {
             showMessage(error.message || 'Failed to update schedule', 'error');
         }
     };
 
-    const handleCreateBackup = async () => {
+    const handleMaxCountChange = async (e) => {
+        e.preventDefault();
         try {
-            const res = await backupsAPI.create();
+            const res = await backupsAPI.updateMaxCount(maxCount);
             if (res.success) {
-                showMessage('Backup started in background', 'success');
-                // Refresh list after a delay
-                setTimeout(fetchBackups, 2000);
+                setMaxCount(res.maxCount);
+                showMessage(`Retention limit set to ${res.maxCount} backup${res.maxCount === 1 ? '' : 's'}`, 'success');
+            } else {
+                showMessage(res.error || 'Failed to update retention limit', 'error');
             }
         } catch (error) {
-            showMessage('Failed to start backup', 'error');
+            showMessage(error.message || 'Failed to update retention limit', 'error');
+        }
+    };
+
+    const handleCreateBackup = async () => {
+        try {
+            setCreating(true);
+            const res = await backupsAPI.create();
+            if (res.success) {
+                showMessage('Backup started in the background — list will refresh shortly', 'success');
+                setTimeout(fetchBackups, 3000);
+            } else {
+                showMessage(res.error || 'Failed to start backup', 'error');
+            }
+        } catch (error) {
+            showMessage(error.message || 'Failed to start backup', 'error');
+        } finally {
+            setCreating(false);
         }
     };
 
     const handleRestore = async (filename) => {
-        if (!window.confirm(`WARNING: Restoring ${filename} will OVERWRITE the current database. Are you sure?`)) {
+        if (!window.confirm(`WARNING: Restoring "${filename}" will OVERWRITE the current database. Are you sure?`)) {
             return;
         }
-
         try {
             setRestoring(true);
             const res = await backupsAPI.restore(filename);
@@ -116,7 +192,7 @@ const BackupSettings = () => {
                 showMessage('Database restored successfully! Please restart the application.', 'success');
             }
         } catch (error) {
-            showMessage('Restore failed: ' + error.message, 'error');
+            showMessage('Restore failed: ' + (error.message || 'Unknown error'), 'error');
         } finally {
             setRestoring(false);
         }
@@ -124,11 +200,11 @@ const BackupSettings = () => {
 
     const showMessage = (text, type) => {
         setMessage({ text, type });
-        setTimeout(() => setMessage(null), 5000);
+        setTimeout(() => setMessage(null), 6000);
     };
 
     const formatBytes = (bytes) => {
-        if (bytes === 0) return '0 Bytes';
+        if (!bytes || bytes === 0) return '0 Bytes';
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -143,7 +219,7 @@ const BackupSettings = () => {
         <div className="backup-settings-container animate-fade-in">
             <div className="page-header">
                 <h1>Database Backups</h1>
-                <p className="subtitle">Manage automated backups and automated restoration.</p>
+                <p className="subtitle">Manage automated backup schedules and restore points.</p>
             </div>
 
             {message && (
@@ -152,36 +228,80 @@ const BackupSettings = () => {
                 </div>
             )}
 
-            <div className="settings-section">
-                <h2>Automated Schedule</h2>
-                <div className="schedule-form">
-                    <label>Hours between backups:</label>
-                    <div className="time-input-group">
-                        <input
-                            type="number"
-                            min="1"
-                            max="720"
-                            value={hoursInput}
-                            onChange={(e) => setHoursInput(e.target.value)}
-                            style={{ flex: 1, padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
-                        />
-                        <button className="btn btn-primary" onClick={handleScheduleChange}>
-                            Save Schedule
-                        </button>
-                    </div>
-                    <p className="cron-info">Current Internal Cron: <code>{schedule}</code> (Runs every {cronToHours(schedule)} hours)</p>
+            {/* ── Configuration Grid ── */}
+            <div className="settings-grid">
+                {/* ── Backup Schedule ── */}
+                <div className="settings-section">
+                    <h2>Automated Schedule</h2>
+                    <form className="schedule-form" onSubmit={handleScheduleChange}>
+                        <label>Backup interval:</label>
+                        <div className="time-input-group">
+                            <input
+                                type="number"
+                                min="1"
+                                max={intervalUnit === 'minutes' ? 59 : 720}
+                                value={intervalValue}
+                                onChange={(e) => setIntervalValue(e.target.value)}
+                                className="interval-number-input"
+                            />
+                            <select
+                                value={intervalUnit}
+                                onChange={(e) => setIntervalUnit(e.target.value)}
+                                className="interval-unit-select"
+                            >
+                                <option value="minutes">Minutes</option>
+                                <option value="hours">Hours</option>
+                            </select>
+                            <button type="submit" className="btn-primary">
+                                Save Schedule
+                            </button>
+                        </div>
+                        <p className="cron-info">
+                            Runs {describeSchedule(intervalValue, intervalUnit)}
+                            {' '}<span className="cron-raw">({schedule})</span>
+                        </p>
+                    </form>
+                </div>
+
+                {/* ── Retention Limit ── */}
+                <div className="settings-section">
+                    <h2>Retention Limit</h2>
+                    <form className="schedule-form" onSubmit={handleMaxCountChange}>
+                        <label>Maximum backups to keep:</label>
+                        <div className="time-input-group">
+                            <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={maxCount}
+                                onChange={(e) => setMaxCount(e.target.value)}
+                                className="interval-number-input"
+                            />
+                            <button type="submit" className="btn-primary">
+                                Save Limit
+                            </button>
+                        </div>
+                        <p className="cron-info">
+                            Oldest is automatically deleted after {maxCount} saved backups.
+                        </p>
+                    </form>
                 </div>
             </div>
 
+            {/* ── Available Backups ── */}
             <div className="settings-section">
                 <div className="section-header">
                     <h2>Available Backups</h2>
-                    <button className="btn-primary" onClick={handleCreateBackup} disabled={loading || restoring}>
-                        {loading ? 'Creating...' : 'Backup Now'}
+                    <button
+                        className="btn-primary"
+                        onClick={handleCreateBackup}
+                        disabled={creating || restoring}
+                    >
+                        {creating ? 'Starting...' : '⬛ Backup Now'}
                     </button>
                 </div>
 
-                {loading && !backups.length ? (
+                {loading ? (
                     <p>Loading backups...</p>
                 ) : (
                     <div className="backups-table-container">
@@ -209,7 +329,7 @@ const BackupSettings = () => {
                                                 <button
                                                     className="btn-restore"
                                                     onClick={() => handleRestore(backup.filename)}
-                                                    disabled={restoring}
+                                                    disabled={restoring || creating}
                                                 >
                                                     {restoring ? 'Restoring...' : 'Restore'}
                                                 </button>

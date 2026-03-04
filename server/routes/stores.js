@@ -3,7 +3,11 @@ const jwt = require('jsonwebtoken');
 const { query, queryOne, run } = require('../db');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'shiftsync-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('CRITICAL: JWT_SECRET environment variable is not defined.');
+    process.exit(1);
+}
 
 // Middleware to authenticate JWT token
 function authenticateToken(req, res, next) {
@@ -98,17 +102,28 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
 
 // POST /api/stores — create a new store
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
+    const { pool } = require('../db');
+    const client = await pool.connect();
+
     try {
+        await client.query('BEGIN');
+
         const { name, address, city, state, zipCode, phone, timezone } = req.body;
 
         if (!name) {
+            await client.query('ROLLBACK');
+            client.release();
             return res.status(400).json({ success: false, error: 'Store name is required' });
         }
 
-        // Generate next store ID
-        const lastStore = await queryOne(
+        // Advisory lock prevents race condition on ID generation
+        await client.query('SELECT pg_advisory_xact_lock(1001)');
+
+        // Generate next store ID atomically
+        const lastStoreRes = await client.query(
             "SELECT id FROM stores WHERE id LIKE 'store-%' ORDER BY id DESC LIMIT 1"
         );
+        const lastStore = lastStoreRes.rows[0];
 
         let nextNum = 1;
         if (lastStore) {
@@ -119,16 +134,12 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
         }
         const storeId = `store-${String(nextNum).padStart(3, '0')}`;
 
-        // Check for duplicate ID (just in case)
-        const existing = await queryOne('SELECT id FROM stores WHERE id = $1', [storeId]);
-        if (existing) {
-            return res.status(400).json({ success: false, error: 'Store ID already exists' });
-        }
-
-        await run(`
+        await client.query(`
             INSERT INTO stores (id, name, address, city, state, zip_code, phone, timezone)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `, [storeId, name, address || null, city || null, state || null, zipCode || null, phone || null, timezone || 'America/Chicago']);
+
+        await client.query('COMMIT');
 
         const newStore = await queryOne('SELECT * FROM stores WHERE id = $1', [storeId]);
 
@@ -148,8 +159,11 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
             }
         });
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('Create store error:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });
+    } finally {
+        client.release();
     }
 });
 

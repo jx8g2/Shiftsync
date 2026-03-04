@@ -115,7 +115,8 @@ export function AuthProvider({ children }) {
         refreshUser,
         isEmployee: user?.role === 'employee',
         isManager: user?.role === 'manager',
-        isAdmin: user?.role === 'admin'
+        isAdmin: user?.role === 'admin',
+        isShiftLead: user?.role === 'employee' && user?.position?.toLowerCase() === 'shift lead'
     };
 
     return (

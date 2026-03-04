@@ -5,7 +5,11 @@ const { sendPushNotification } = require('../utils/push');
 const { publishUpdate, broadcastUpdate } = require('../utils/redis');
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'shiftsync-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('CRITICAL: JWT_SECRET environment variable is not defined.');
+    process.exit(1);
+}
 
 // Middleware to authenticate JWT token
 function authenticateToken(req, res, next) {
@@ -52,14 +56,32 @@ router.get('/', async (req, res) => {
         `;
         const params = [];
         let paramCount = 1;
+        let conditions = [];
 
-        if (employeeId) {
-            sql += ` WHERE r.employee_id = $${paramCount++}`;
-            params.push(employeeId);
-        } else if (storeId) {
-            // Filter by employees in this store
-            sql += ` WHERE e.store_id = $${paramCount++}`;
-            params.push(storeId);
+        if (req.user.role === 'admin') {
+            if (employeeId) {
+                conditions.push(`r.employee_id = $${paramCount++}`);
+                params.push(employeeId);
+            } else if (storeId) {
+                conditions.push(`e.store_id = $${paramCount++}`);
+                params.push(storeId);
+            }
+        } else if (req.user.role === 'manager') {
+            const me = await queryOne('SELECT store_id FROM employees WHERE id = $1', [req.user.id]);
+            conditions.push(`e.store_id = $${paramCount++}`);
+            params.push(me.store_id);
+            if (employeeId) {
+                conditions.push(`r.employee_id = $${paramCount++}`);
+                params.push(employeeId);
+            }
+        } else {
+            // Regular employees only see their own requests
+            conditions.push(`r.employee_id = $${paramCount++}`);
+            params.push(req.user.id);
+        }
+
+        if (conditions.length > 0) {
+            sql += ' WHERE ' + conditions.join(' AND ');
         }
 
         sql += ' ORDER BY r.created_at DESC';
@@ -73,6 +95,10 @@ router.get('/', async (req, res) => {
             employeeName: r.employee_name,
             startDate: r.start_date,
             endDate: r.end_date,
+            requestedDate: r.requested_date,
+            requestScope: r.request_scope || 'full_day',
+            partialStartTime: r.partial_start_time,
+            partialEndTime: r.partial_end_time,
             reason: r.reason,
             type: r.type || 'other',
             status: r.status,
@@ -98,28 +124,82 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Create new request
+// Create new time-off request (pre-publish only)
 router.post('/', async (req, res) => {
     try {
-        const { employeeId, startDate, endDate, reason, type, shiftId } = req.body;
+        const { employeeId, startDate, endDate, requestedDate, requestScope, partialStartTime, partialEndTime, reason, type, shiftId } = req.body;
 
         if (!employeeId || !startDate || !endDate) {
             return res.status(400).json({ success: false, error: 'Missing required fields' });
         }
 
+        // Determine the target date for published-week check
+        const targetDate = requestedDate || startDate;
+
+        // Validate: block submission if the schedule for that week is already published
+        // Find the Monday of the target date's week
+        // Use a format that Date.parse handles consistently as local time (YYYY/MM/DD) 
+        // or ensure we handle the T00:00:00 correctly. 
+        const dateParts = targetDate.split('-');
+        const d = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+        const dayOfWeek = d.getDay(); // 0=Sun, 1=Mon...
+        // Monday is 1. Sunday is 0.
+        const diff = (dayOfWeek === 0) ? -6 : 1 - dayOfWeek;
+        d.setDate(d.getDate() + diff);
+
+        const weekStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+        const employee = await queryOne('SELECT name, store_id FROM employees WHERE id = $1', [employeeId]);
+        if (!employee) {
+            return res.status(404).json({ success: false, error: 'Employee not found' });
+        }
+
+        const publishedSchedule = await queryOne(
+            'SELECT id FROM schedules WHERE store_id = $1 AND week_start = $2 AND published = 1',
+            [employee.store_id, weekStart]
+        );
+
+        if (publishedSchedule) {
+            return res.status(400).json({
+                success: false,
+                error: 'Cannot submit a time-off request for a week that has already been published. Please use a shift swap request instead.'
+            });
+        }
+
+        // Check: only one request per employee per day (pending or approved)
+        const existingRequest = await queryOne(
+            `SELECT id FROM time_off_requests
+             WHERE employee_id = $1 AND requested_date = $2 AND status != 'denied'`,
+            [employeeId, targetDate]
+        );
+        if (existingRequest) {
+            return res.status(409).json({
+                success: false,
+                error: `You already have a time-off request for ${targetDate}. Only one request is allowed per day.`
+            });
+        }
+
         // Use RETURNING id
+
         const result = await queryOne(
-            'INSERT INTO time_off_requests (employee_id, start_date, end_date, reason, type, shift_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-            [employeeId, startDate, endDate, reason, type || 'other', shiftId || null]
+            `INSERT INTO time_off_requests
+             (employee_id, start_date, end_date, requested_date, request_scope, partial_start_time, partial_end_time, reason, type, shift_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+            [employeeId, startDate, endDate, requestedDate || startDate,
+                requestScope || 'full_day', partialStartTime || null, partialEndTime || null,
+                reason, type || 'other', shiftId || null]
         );
         const requestId = result.id;
 
         // Notify all managers about the new request
-        const employee = await queryOne('SELECT name, store_id FROM employees WHERE id = $1', [employeeId]);
         const managers = await query(
             "SELECT id FROM employees WHERE (role = 'admin' OR (role = 'manager' AND store_id = $1)) AND status = 'active'",
             [employee.store_id]
         );
+
+        const scopeLabel = (requestScope === 'partial')
+            ? `partial (${partialStartTime}–${partialEndTime})`
+            : 'full day';
 
         for (const manager of managers) {
             await run(`
@@ -128,14 +208,14 @@ router.post('/', async (req, res) => {
             `, [
                 manager.id,
                 '📝 New Time-Off Request',
-                `${employee?.name || 'An employee'} submitted a time-off request for ${startDate} - ${endDate}`,
+                `${employee?.name || 'An employee'} requested ${scopeLabel} off on ${targetDate}`,
                 requestId
             ]);
 
             // Background Push
             sendPushNotification(manager.id, {
                 title: '📝 New Time-Off Request',
-                body: `${employee?.name || 'An employee'} submitted a time-off request for ${startDate} - ${endDate}`,
+                body: `${employee?.name || 'An employee'} requested time off on ${targetDate}`,
                 url: '/manager/requests'
             });
 
@@ -164,6 +244,10 @@ router.post('/', async (req, res) => {
                 employeeName: fullRequest.employee_name,
                 startDate: fullRequest.start_date,
                 endDate: fullRequest.end_date,
+                requestedDate: fullRequest.requested_date,
+                requestScope: fullRequest.request_scope || 'full_day',
+                partialStartTime: fullRequest.partial_start_time,
+                partialEndTime: fullRequest.partial_end_time,
                 reason: fullRequest.reason,
                 type: fullRequest.type || 'other',
                 status: fullRequest.status,
@@ -200,6 +284,10 @@ router.put('/:id', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid status' });
         }
 
+        // Capture old status BEFORE updating so we can detect a changed decision
+        const oldRecord = await queryOne('SELECT employee_id, start_date, end_date, shift_id, status FROM time_off_requests WHERE id = $1', [id]);
+        const oldStatus = oldRecord?.status;
+
         const params = [
             status,
             reviewNote || null,
@@ -223,7 +311,7 @@ router.put('/:id', async (req, res) => {
             console.warn(`No changes made for request ${id}. ID might not exist.`);
         }
 
-        const request = await queryOne('SELECT employee_id, start_date, end_date, shift_id FROM time_off_requests WHERE id = $1', [id]);
+        const request = oldRecord; // reuse the pre-update fetch
 
         // Process shift logic if approved
         if (status === 'approved' && request?.shift_id) {
@@ -238,21 +326,35 @@ router.put('/:id', async (req, res) => {
         if (request) {
             const statusEmoji = status === 'approved' ? '✅' : (status === 'denied' ? '❌' : '📝');
             const statusText = status.charAt(0).toUpperCase() + status.slice(1);
+            const isChanged = oldStatus && oldStatus !== 'pending';
+
+            // Fetch reviewer info to include in "decision changed" message
+            const reviewerId = reviewedBy || req.user.id;
+            const reviewer = reviewerId ? await queryOne('SELECT name, role FROM employees WHERE id = $1', [reviewerId]) : null;
+            const reviewerLabel = reviewer?.role === 'manager' ? 'Manager' : reviewer?.role === 'admin' ? 'Admin' : 'Manager';
+
+            const title = isChanged
+                ? `${statusEmoji} Request Decision Changed to ${statusText}`
+                : `${statusEmoji} Request ${statusText}`;
+
+            const message = isChanged
+                ? `Your time-off request decision was changed to ${status} by ${reviewerLabel} ${reviewer?.name || 'a manager'}.${reviewNote ? ' Note: ' + reviewNote : ''}`
+                : `Your time-off request for ${request.start_date} - ${request.end_date} has been ${status}.${reviewNote ? ' Note: ' + reviewNote : ''}`;
 
             await run(`
                 INSERT INTO notifications (user_id, type, title, message, related_entity_type, related_entity_id)
                 VALUES ($1, 'approval', $2, $3, 'request', $4)
             `, [
                 request.employee_id,
-                `${statusEmoji} Request ${statusText}`,
-                `Your time-off request for ${request.start_date} - ${request.end_date} has been ${status}.${reviewNote ? ' Note: ' + reviewNote : ''}`,
+                title,
+                message,
                 id
             ]);
 
             // Background Push
             sendPushNotification(request.employee_id, {
-                title: `${statusEmoji} Request ${statusText}`,
-                body: `Your time-off request for ${request.start_date} - ${request.end_date} has been ${status}.`,
+                title,
+                body: message,
                 url: '/employee/time-off'
             });
 

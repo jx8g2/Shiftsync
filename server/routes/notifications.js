@@ -7,7 +7,10 @@ const router = express.Router();
 // Middleware to authenticate JWT token
 function authenticateToken(req, res, next) {
     const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'shiftsync-secret-key';
+    const JWT_SECRET = process.env.JWT_SECRET;
+    if (!JWT_SECRET) {
+        return res.status(500).json({ success: false, error: 'Server configuration error' });
+    }
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -69,7 +72,11 @@ router.post('/subscribe', authenticateToken, async (req, res) => {
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        const { unreadOnly, limit = 50 } = req.query;
+        const { unreadOnly } = req.query;
+        let limit = parseInt(req.query.limit) || 50;
+
+        // DoS Protection: Cap the limit
+        if (limit > 100) limit = 100;
 
         let notificationsQuery = 'SELECT * FROM notifications WHERE user_id = $1';
         const params = [userId];
@@ -80,7 +87,7 @@ router.get('/', authenticateToken, async (req, res) => {
         }
 
         notificationsQuery += ` ORDER BY created_at DESC LIMIT $${paramIndex}`;
-        params.push(parseInt(limit));
+        params.push(limit);
 
         const notifications = await query(notificationsQuery, params);
 

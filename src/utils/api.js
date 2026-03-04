@@ -32,11 +32,11 @@ const apiRequest = async (endpoint, options = {}) => {
         },
     };
 
-    try {
-        const timestamp = Date.now();
-        const separator = endpoint.includes('?') ? '&' : '?';
-        const url = `${API_BASE_URL}${endpoint}${separator}_t=${timestamp}`;
+    const timestamp = Date.now();
+    const separator = endpoint.includes('?') ? '&' : '?';
+    const url = `${API_BASE_URL}${endpoint}${separator}_t=${timestamp}`;
 
+    try {
         const response = await fetch(url, config);
 
         // Handle 204 No Content specifically
@@ -163,11 +163,13 @@ export const schedulesAPI = {
     },
 
     getPublishedWeeks: async (storeId) => {
-        return apiRequest(`/schedules/published-weeks?storeId=${storeId}`);
+        const params = storeId ? `?storeId=${encodeURIComponent(storeId)}` : '';
+        return apiRequest(`/schedules/published-weeks${params}`);
     },
 
     getEmployeePublishedShifts: async (storeId, employeeId) => {
-        return apiRequest(`/schedules/employee/${employeeId}/published-shifts?storeId=${storeId}`);
+        const params = storeId ? `?storeId=${encodeURIComponent(storeId)}` : '';
+        return apiRequest(`/schedules/employee/${employeeId}/published-shifts${params}`);
     }
 };
 
@@ -212,6 +214,49 @@ export const requestsAPI = {
         return apiRequest(`/requests/${id}/assign-replacement`, {
             method: 'POST',
             body: JSON.stringify({ replacementId }),
+        });
+    }
+};
+
+// Swap Requests API
+export const swapRequestsAPI = {
+    getAll: async (params) => {
+        const queryStr = new URLSearchParams(params).toString();
+        return apiRequest(`/swap-requests?${queryStr}`);
+    },
+
+    create: async (data) => {
+        return apiRequest('/swap-requests', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    getEligiblePartnersForShift: async (shiftId) => {
+        return apiRequest(`/swap-requests/shift/${shiftId}/eligible-partners`);
+    },
+
+    getEligiblePartners: async (id) => {
+        return apiRequest(`/swap-requests/${id}/eligible-partners`);
+    },
+
+    updateStatus: async (id, updates) => {
+        return apiRequest(`/swap-requests/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(updates),
+        });
+    },
+
+    delete: async (id) => {
+        return apiRequest(`/swap-requests/${id}`, {
+            method: 'DELETE',
+        });
+    },
+
+    respond: async (id, action) => {
+        return apiRequest(`/swap-requests/${id}/partner-response`, {
+            method: 'PUT',
+            body: JSON.stringify({ action }),
         });
     }
 };
@@ -313,6 +358,17 @@ export const backupsAPI = {
     create: async () => {
         return apiRequest('/admin/backups/create', {
             method: 'POST',
+        });
+    },
+
+    getMaxCount: async () => {
+        return apiRequest('/admin/backups/config/max-count');
+    },
+
+    updateMaxCount: async (maxCount) => {
+        return apiRequest('/admin/backups/config/max-count', {
+            method: 'POST',
+            body: JSON.stringify({ maxCount }),
         });
     },
 

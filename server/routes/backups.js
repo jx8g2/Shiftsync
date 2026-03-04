@@ -11,7 +11,10 @@ const { queryOne, run } = require('../db');
 // Middleware to check if user is admin
 const authenticateToken = (req, res, next) => {
     const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'shiftsync-secret-key';
+    const JWT_SECRET = process.env.JWT_SECRET;
+    if (!JWT_SECRET) {
+        return res.status(500).json({ success: false, error: 'Server configuration error' });
+    }
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -74,6 +77,39 @@ router.post('/config', async (req, res) => {
     }
 });
 
+// GET /api/admin/backups/config/max-count - Get max backup count
+router.get('/config/max-count', async (req, res) => {
+    try {
+        const setting = await queryOne('SELECT value FROM system_settings WHERE "key" = $1', ['backup_max_count']);
+        res.json({ success: true, maxCount: setting ? parseInt(setting.value, 10) : 7 });
+    } catch (error) {
+        console.error('Get max backup count error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+// POST /api/admin/backups/config/max-count - Update max backup count
+router.post('/config/max-count', async (req, res) => {
+    try {
+        const { maxCount } = req.body;
+        const n = parseInt(maxCount, 10);
+        if (!n || n < 1 || n > 100) {
+            return res.status(400).json({ success: false, error: 'Max count must be between 1 and 100.' });
+        }
+
+        await run(`
+            INSERT INTO system_settings ("key", value)
+            VALUES ('backup_max_count', $1)
+            ON CONFLICT ("key") DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP
+        `, [String(n)]);
+
+        res.json({ success: true, message: 'Max backup count updated', maxCount: n });
+    } catch (error) {
+        console.error('Update max backup count error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
 // GET /api/admin/backups/list - List available backups
 router.get('/list', async (req, res) => {
     try {
@@ -88,11 +124,11 @@ router.get('/list', async (req, res) => {
 // POST /api/admin/backups/create - Trigger manual backup
 router.post('/create', async (req, res) => {
     try {
-        performBackup();
-        res.json({ success: true, message: 'Backup started' });
+        const result = await performBackup();
+        res.json({ success: true, message: 'Backup created successfully', filename: result.filename });
     } catch (error) {
         console.error('Create backup error:', error);
-        res.status(500).json({ success: false, error: 'Internal server error' });
+        res.status(500).json({ success: false, error: 'Backup failed: ' + error.message });
     }
 });
 

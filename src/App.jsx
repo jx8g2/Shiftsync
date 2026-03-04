@@ -46,12 +46,15 @@ import StoreForm from './pages/admin/StoreForm';
 import ManagerForm from './pages/admin/ManagerForm';
 import BackupSettings from './pages/admin/BackupSettings';
 
+// Shift Lead Pages
+import ShiftLeadApprovals from './pages/shift-lead/ShiftLeadApprovals';
+
 // Shared Pages
 import Chat from './pages/Chat';
 
 // Protected Route Component
 function ProtectedRoute({ children, allowedRoles }) {
-    const { user, isEmployee, isManager, isAdmin } = useAuth();
+    const { user, isEmployee, isManager, isAdmin, isShiftLead } = useAuth();
 
     if (!user) {
         return <Navigate to="/login" replace />;
@@ -60,7 +63,8 @@ function ProtectedRoute({ children, allowedRoles }) {
     const roleCheck = {
         employee: isEmployee || isManager || isAdmin,
         manager: isManager,
-        admin: isAdmin
+        admin: isAdmin,
+        shiftLead: isShiftLead
     };
 
     const hasAccess = allowedRoles.some(role => roleCheck[role]);
@@ -69,6 +73,7 @@ function ProtectedRoute({ children, allowedRoles }) {
         // Redirect to appropriate dashboard based on role
         if (isAdmin) return <Navigate to="/admin" replace />;
         if (isManager) return <Navigate to="/manager" replace />;
+        if (isShiftLead) return <Navigate to="/employee" replace />;
         return <Navigate to="/employee" replace />;
     }
 
@@ -150,6 +155,19 @@ function AppRoutes() {
                 <Route path="chat" element={<Chat />} />
             </Route>
 
+            {/* Shift Lead Routes (Shift Lead employees only) */}
+            <Route
+                path="/shift-lead"
+                element={
+                    <ProtectedRoute allowedRoles={['shiftLead']}>
+                        <Layout />
+                    </ProtectedRoute>
+                }
+            >
+                <Route index element={<Navigate to="/shift-lead/requests" replace />} />
+                <Route path="requests" element={<ShiftLeadApprovals />} />
+            </Route>
+
             {/* Admin Routes (Admin only) */}
             <Route
                 path="/admin"
@@ -170,15 +188,6 @@ function AppRoutes() {
                 <Route path="managers" element={<EmployeeManagement />} />
                 <Route path="managers/new" element={<ManagerForm />} />
                 <Route path="managers/:id/edit" element={<ManagerForm />} />
-
-                {/* All the same features as manager, but for admin */}
-                <Route path="employees" element={<EmployeeManagement />} />
-                <Route path="employees/new" element={<EmployeeForm />} />
-                <Route path="employees/:id/edit" element={<EmployeeForm />} />
-                <Route path="requests" element={<RequestApprovals />} />
-                <Route path="schedule-builder" element={<ScheduleBuilder />} />
-                <Route path="store-hours" element={<StoreHours />} />
-                <Route path="reports" element={<LaborReports />} />
 
                 {/* Admin Settings */}
                 <Route path="settings" element={<BackupSettings />} />

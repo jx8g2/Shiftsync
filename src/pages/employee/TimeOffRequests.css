@@ -109,3 +109,66 @@
     color: #ffc107;
     background: rgba(255, 193, 7, 0.1);
 }
+
+/* ── Info / Error banners ─────────────────────────────────────── */
+.info-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    background: rgba(var(--color-primary-rgb, 99, 102, 241), 0.08);
+    border: 1px solid rgba(var(--color-primary-rgb, 99, 102, 241), 0.25);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) var(--spacing-lg);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+}
+
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.1);
+    border: 1px solid rgba(var(--color-danger-rgb, 239, 68, 68), 0.3);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    font-size: var(--font-size-sm);
+    color: var(--color-danger, #ef4444);
+}
+
+/* ── Radio group ──────────────────────────────────────────────── */
+.radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+}
+
+.radio-label input[type="radio"] {
+    accent-color: var(--color-primary);
+    width: 1rem;
+    height: 1rem;
+}
+
+/* ── Form row (two columns) ───────────────────────────────────── */
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+}
+
+/* ── Hint text ────────────────────────────────────────────────── */
+.form-hint {
+    font-size: var(--font-size-xs);
+    margin-top: var(--spacing-xs);
+}
+
+.text-warning {
+    color: var(--color-warning, #f59e0b);
+}
