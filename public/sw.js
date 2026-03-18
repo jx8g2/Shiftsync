@@ -28,8 +28,8 @@ self.addEventListener('push', (event) => {
 
     const options = {
         body: body,
-        icon: '/vite.png',
-        badge: '/vite.png',
+        icon: '/vite.svg',
+        badge: '/vite.svg',
         data: { url: targetUrl },
         vibrate: [100, 50, 100],
         requireInteraction: true,
